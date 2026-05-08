@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 import anthropic
 
-from . import computer_tool, helper
+from . import bash_tool, computer_tool, helper
 
 # ─── Config (env-driven) ─────────────────────────────────────────────────────
 
@@ -55,6 +55,12 @@ Tienes estas herramientas:
                                        quieras planificar los siguientes pasos sin
                                        gastar un turno completo de razonamiento.
                                        Te enviará un screenshot junto a tu pregunta.
+- bash(command, timeout=30)          — ejecuta un comando bash en el sandbox Debian.
+                                       Útil para tareas que NO requieren navegador:
+                                       descargar (curl/wget), buscar (grep/find),
+                                       procesar texto (awk/sed/jq), instalar
+                                       paquetes (apt-get install -y), etc. Devuelve
+                                       stdout, stderr y exit_code. CWD inicial: /app.
 - task_complete(summary)             — llámala cuando hayas terminado la tarea
                                        y resume brevemente el resultado.
 
@@ -171,6 +177,29 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {"seconds": {"type": "number"}},
             "required": ["seconds"],
+        },
+    },
+    {
+        "name": "bash",
+        "description": (
+            "Ejecuta un comando en bash dentro del sandbox Debian. Devuelve "
+            "stdout, stderr y exit_code. Timeout por defecto 30s (max 120s). "
+            "Usa esto para tareas que no requieren ver el navegador: descargar "
+            "(curl/wget), procesar texto (grep/awk/sed/jq), explorar el "
+            "filesystem (ls/find), instalar paquetes (apt-get install -y), "
+            "verificar conectividad (ping/dig), etc. CWD inicial: /app. "
+            "Para encadenar: usa '&&' o ';'. Para cambiar de dir usa 'cd /path && cmd'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Comando bash a ejecutar"},
+                "timeout": {
+                    "type": "number",
+                    "description": "Timeout en segundos (default 30, max 120)",
+                },
+            },
+            "required": ["command"],
         },
     },
     {
@@ -388,6 +417,27 @@ def run_agent(task: str, on_event: EventCallback) -> None:
                         for k, v in args.items()
                     }
                     on_event({"type": "action", "action": name, "input": display_args})
+
+                    # bash: ejecuta comando shell
+                    if name == "bash":
+                        cmd = args.get("command", "")
+                        timeout_arg = float(args.get("timeout", bash_tool.DEFAULT_TIMEOUT_S))
+                        bash_result = bash_tool.execute_bash(cmd, timeout=timeout_arg)
+                        on_event({
+                            "type": "bash_output",
+                            "command": cmd,
+                            "stdout": bash_result["stdout"],
+                            "stderr": bash_result["stderr"],
+                            "exit_code": bash_result["exit_code"],
+                            "error": bash_result.get("error"),
+                        })
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": blk.id,
+                            "content": bash_tool.to_tool_result_content(bash_result),
+                            "is_error": bool(bash_result.get("error")) or bash_result["exit_code"] != 0,
+                        })
+                        continue
 
                     # consult_helper: llama al ayudante con el último screenshot
                     if name == "consult_helper":

@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import bash_tool
 from .agent import run_agent
 
 VNC_PORT = int(os.environ.get("VNC_PORT", "5900"))
@@ -133,6 +134,54 @@ INDEX_HTML = """<!DOCTYPE html>
       color: #f5d4ec;
       white-space: pre-wrap;
     }
+    #log .bash-block {
+      display: block;
+      background: #050a05;
+      border-left: 3px solid #50fa7b;
+      padding: 8px 10px;
+      margin: 6px 0;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 12px;
+      color: #c8d3e0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #log .bash-block .cmd { color: #50fa7b; font-weight: 600; }
+    #log .bash-block .stderr { color: #ff79c6; }
+    #log .bash-block .exit-ok { color: #6c7086; }
+    #log .bash-block .exit-fail { color: #ff5555; }
+    #log .bash-block .by-user { color: #4a90e2; font-size: 10px; text-transform: uppercase; }
+    #shell-row {
+      display: flex;
+      gap: 6px;
+      padding: 8px 10px;
+      background: #0a0a0a;
+      border-top: 1px solid #2a2a32;
+      font-family: 'Consolas', 'Monaco', monospace;
+    }
+    #shell-row .prompt { color: #50fa7b; font-weight: bold; padding: 8px 0 0 6px; }
+    #shell-input {
+      flex: 1;
+      background: #050a05;
+      color: #c8d3e0;
+      border: 1px solid #2a2a32;
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+    }
+    #shell-input:focus { border-color: #50fa7b; }
+    #shell-send {
+      background: #2a2a32;
+      color: #50fa7b;
+      border: 0;
+      border-radius: 4px;
+      padding: 0 12px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    #shell-send:hover { background: #3a3a42; }
 
     #input-row {
       display: flex;
@@ -193,6 +242,11 @@ INDEX_HTML = """<!DOCTYPE html>
     <div id="input-row">
       <textarea id="task" rows="1" placeholder="Ej: Busca el precio actual de Bitcoin en USD" autofocus></textarea>
       <button id="send">▶ enviar</button>
+    </div>
+    <div id="shell-row">
+      <span class="prompt">$</span>
+      <input id="shell-input" placeholder="comando bash (ej: ls /app, df -h, curl ifconfig.me)" />
+      <button id="shell-send">run</button>
     </div>
   </div>
   <div class="panel">
@@ -271,6 +325,45 @@ INDEX_HTML = """<!DOCTYPE html>
           div.textContent = '🧠 Consulta: ' + m.question + '\\n→ ' + m.answer;
           log.appendChild(div);
           log.scrollTop = log.scrollHeight;
+        } else if (m.type === 'bash_output') {
+          const div = document.createElement('div');
+          div.className = 'bash-block';
+
+          if (m.from_user) {
+            const tag = document.createElement('div');
+            tag.className = 'by-user';
+            tag.textContent = '— ejecutado por ti —';
+            div.appendChild(tag);
+          }
+          const cmd = document.createElement('div');
+          cmd.className = 'cmd';
+          cmd.textContent = '$ ' + m.command;
+          div.appendChild(cmd);
+
+          if (m.stdout) {
+            const out = document.createElement('div');
+            out.textContent = m.stdout;
+            div.appendChild(out);
+          }
+          if (m.stderr) {
+            const err = document.createElement('div');
+            err.className = 'stderr';
+            err.textContent = m.stderr;
+            div.appendChild(err);
+          }
+          if (m.error) {
+            const er = document.createElement('div');
+            er.className = 'exit-fail';
+            er.textContent = '⚠ ' + m.error;
+            div.appendChild(er);
+          } else {
+            const e = document.createElement('div');
+            e.className = m.exit_code === 0 ? 'exit-ok' : 'exit-fail';
+            e.textContent = '[exit ' + m.exit_code + ']';
+            div.appendChild(e);
+          }
+          log.appendChild(div);
+          log.scrollTop = log.scrollHeight;
         }
       };
     }
@@ -311,6 +404,53 @@ INDEX_HTML = """<!DOCTYPE html>
       taskInput.style.height = 'auto';
       taskInput.style.height = Math.min(120, taskInput.scrollHeight) + 'px';
     });
+
+    // Terminal — el usuario también puede ejecutar comandos
+    const shellInput = document.getElementById('shell-input');
+    const shellSend = document.getElementById('shell-send');
+    const shellHistory = [];
+    let shellHistIdx = -1;
+
+    async function runShell() {
+      const cmd = shellInput.value.trim();
+      if (!cmd) return;
+      shellHistory.push(cmd);
+      shellHistIdx = shellHistory.length;
+      shellInput.value = '';
+      shellSend.disabled = true;
+      try {
+        const res = await fetch('/shell', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: cmd, timeout: 30 })
+        });
+        if (!res.ok) {
+          appendBlock('[shell error] ' + await res.text(), 'err');
+        }
+        // El resultado viene también por SSE (broadcast), no hace falta pintarlo aquí
+      } catch (e) {
+        appendBlock('[shell error] ' + e.message, 'err');
+      } finally {
+        shellSend.disabled = false;
+        shellInput.focus();
+      }
+    }
+    shellSend.onclick = runShell;
+    shellInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); runShell(); }
+      else if (e.key === 'ArrowUp' && shellHistIdx > 0) {
+        shellHistIdx--;
+        shellInput.value = shellHistory[shellHistIdx];
+      } else if (e.key === 'ArrowDown') {
+        if (shellHistIdx < shellHistory.length - 1) {
+          shellHistIdx++;
+          shellInput.value = shellHistory[shellHistIdx];
+        } else {
+          shellHistIdx = shellHistory.length;
+          shellInput.value = '';
+        }
+      }
+    });
   </script>
 </body>
 </html>
@@ -326,6 +466,11 @@ def index() -> str:
 
 class TaskBody(BaseModel):
     task: str
+
+
+class ShellBody(BaseModel):
+    command: str
+    timeout: float = 30.0
 
 
 @app.post("/task")
@@ -350,6 +495,35 @@ def submit_task(body: TaskBody) -> dict[str, Any]:
 
     threading.Thread(target=runner, daemon=True, name="agent-runner").start()
     return {"ok": True}
+
+
+@app.post("/shell")
+def shell_exec(body: ShellBody) -> dict[str, Any]:
+    """Ejecuta un comando bash directamente desde la UI (no a través del agente).
+
+    El resultado se devuelve por HTTP y también se broadcastea por SSE para que
+    aparezca en el chat junto al resto del log.
+    """
+    cmd = (body.command or "").strip()
+    if not cmd:
+        raise HTTPException(status_code=400, detail="comando vacío")
+
+    result = bash_tool.execute_bash(cmd, timeout=body.timeout)
+    _emit({
+        "type": "bash_output",
+        "command": cmd,
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+        "exit_code": result["exit_code"],
+        "error": result.get("error"),
+        "from_user": True,
+    })
+    return {
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+        "exit_code": result["exit_code"],
+        "error": result.get("error"),
+    }
 
 
 @app.get("/events")
@@ -394,44 +568,69 @@ def events() -> StreamingResponse:
 
 @app.websocket("/websockify")
 async def websockify_bridge(websocket: WebSocket) -> None:
-    """Bridge WebSocket → TCP a x11vnc:5900.
+    """Bridge WebSocket → TCP a x11vnc:5900. Reemplaza al binario `websockify`.
 
-    Reemplaza al binario `websockify`. noVNC envía frames binarios sobre WS;
-    nosotros los pipe-amos a un socket TCP de x11vnc en localhost.
+    Negocia el subprotocol dinámicamente: si el cliente pide "binary" se lo
+    devolvemos; si no, aceptamos sin subprotocol. Algunos proxies (Railway,
+    Cloudflare) pueden stripear/transformar la cabecera Sec-WebSocket-Protocol.
     """
-    await websocket.accept(subprotocol="binary")
+    requested = list(websocket.scope.get("subprotocols", []) or [])
+    selected: str | None = None
+    if "binary" in requested:
+        selected = "binary"
+
+    print(f"[ws] connect requested_protos={requested!r} selected={selected!r}", flush=True)
+
+    try:
+        await websocket.accept(subprotocol=selected)
+    except Exception as e:
+        print(f"[ws] accept failed: {e!r}", flush=True)
+        return
+
     try:
         reader, writer = await asyncio.open_connection("127.0.0.1", VNC_PORT)
-    except OSError:
+    except OSError as e:
+        print(f"[ws] tcp connect to 127.0.0.1:{VNC_PORT} failed: {e!r}", flush=True)
         try:
             await websocket.close(code=1011)
         except Exception:
             pass
         return
 
+    print(f"[ws] tcp connected to x11vnc:{VNC_PORT}, bridging…", flush=True)
+
     async def ws_to_tcp() -> None:
         try:
             while True:
-                data = await websocket.receive_bytes()
+                msg = await websocket.receive()
+                msg_type = msg.get("type")
+                if msg_type == "websocket.disconnect":
+                    return
+                # noVNC envía bytes; algunas versiones envían texto. Aceptamos ambos.
+                data = msg.get("bytes")
+                if data is None:
+                    text = msg.get("text")
+                    if text is None:
+                        continue
+                    data = text.encode("utf-8")
                 writer.write(data)
                 await writer.drain()
         except WebSocketDisconnect:
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[ws] ws_to_tcp error: {e!r}", flush=True)
 
     async def tcp_to_ws() -> None:
         try:
             while True:
-                data = await reader.read(8192)
+                data = await reader.read(16384)
                 if not data:
                     return
                 await websocket.send_bytes(data)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[ws] tcp_to_ws error: {e!r}", flush=True)
 
     try:
-        # Cualquiera que termine cierra el otro
         done, pending = await asyncio.wait(
             [asyncio.create_task(ws_to_tcp()), asyncio.create_task(tcp_to_ws())],
             return_when=asyncio.FIRST_COMPLETED,
@@ -448,6 +647,7 @@ async def websockify_bridge(websocket: WebSocket) -> None:
             await websocket.close()
         except Exception:
             pass
+        print("[ws] bridge closed", flush=True)
 
 
 @app.get("/healthz")
