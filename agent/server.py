@@ -456,6 +456,55 @@ def healthz() -> dict[str, Any]:
         return {"ok": True, "busy": _state["busy"], "task": _state["task"]}
 
 
+@app.get("/debug/services")
+def debug_services() -> dict[str, Any]:
+    """Lista procesos clave + intenta conectar a x11vnc:5900 para diagnosticar."""
+    import socket
+    import subprocess
+
+    def pgrep(name: str) -> str:
+        try:
+            r = subprocess.run(
+                ["pgrep", "-a", name], capture_output=True, text=True, timeout=2,
+            )
+            return r.stdout.strip() or "(no procs)"
+        except Exception as e:  # noqa: BLE001
+            return f"err: {e}"
+
+    def tail(path: str, n: int = 30) -> str:
+        try:
+            with open(path) as f:
+                lines = f.readlines()
+            return "".join(lines[-n:])
+        except Exception as e:  # noqa: BLE001
+            return f"(no se puede leer: {e})"
+
+    def can_connect(host: str, port: int) -> str:
+        try:
+            with socket.create_connection((host, port), timeout=2):
+                return "ok"
+        except Exception as e:  # noqa: BLE001
+            return f"falla: {e}"
+
+    return {
+        "procs": {
+            "Xvfb": pgrep("Xvfb"),
+            "fluxbox": pgrep("fluxbox"),
+            "x11vnc": pgrep("x11vnc"),
+            "firefox": pgrep("firefox"),
+        },
+        "tcp": {
+            "x11vnc:5900": can_connect("127.0.0.1", 5900),
+        },
+        "logs": {
+            "xvfb.log": tail("/tmp/xvfb.log"),
+            "x11vnc.log": tail("/tmp/x11vnc.log"),
+            "fluxbox.log": tail("/tmp/fluxbox.log"),
+            "firefox.log": tail("/tmp/firefox.log"),
+        },
+    }
+
+
 @app.get("/debug/computer-use")
 def debug_computer_use() -> dict[str, Any]:
     """Diagnóstico: stream raw con la combinación tools+beta del agente.
