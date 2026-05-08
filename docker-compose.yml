@@ -1,0 +1,22 @@
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: agente-navegador
+    env_file: .env
+    environment:
+      PORT: ${PORT:-8000}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-4-7}
+      HELPER_MODEL: ${HELPER_MODEL:-claude-haiku-4-5}
+      HELPER_ENABLED: ${HELPER_ENABLED:-1}
+      DISPLAY_WIDTH: ${DISPLAY_WIDTH:-1024}
+      DISPLAY_HEIGHT: ${DISPLAY_HEIGHT:-768}
+      MAX_TOKENS: ${MAX_TOKENS:-8192}
+      MAX_ITERATIONS: ${MAX_ITERATIONS:-100}
+      ACTION_DELAY_S: ${ACTION_DELAY_S:-0.6}
+      ANTHROPIC_LOG: ${ANTHROPIC_LOG:-info}
+    ports:
+      # Single-port: dashboard + noVNC + WebSocket bridge bajo el mismo puerto
+      - "${PORT:-8000}:${PORT:-8000}"
+    shm_size: "1gb"

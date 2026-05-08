@@ -1,0 +1,24 @@
+# Secretos / config local — NUNCA committear
+.env
+.env.local
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Claude / runtime
+.claude/
+*.log
+/tmp/

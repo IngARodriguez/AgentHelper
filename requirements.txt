@@ -1,0 +1,4 @@
+anthropic>=0.40
+pillow>=10
+fastapi>=0.110
+uvicorn[standard]>=0.27
