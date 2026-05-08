@@ -16,6 +16,7 @@ import json
 import os
 import queue
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +36,18 @@ NOVNC_DIR = Path(os.environ.get("NOVNC_DIR", "/usr/share/novnc"))
 # deben mandar `Authorization: Bearer <token>`. Si no se define, /api/* es abierto.
 API_TOKEN = os.environ.get("API_TOKEN", "").strip()
 
-app = FastAPI(title="Agente de navegador")
+@asynccontextmanager
+async def lifespan(_app: "FastAPI"):
+    """Arranca servicios opcionales (Telegram bot) al iniciar uvicorn."""
+    try:
+        from . import telegram_bot
+        telegram_bot.start_bot()
+    except Exception as e:  # noqa: BLE001
+        print(f"[lifespan] error iniciando telegram_bot: {e!r}", flush=True)
+    yield
+
+
+app = FastAPI(title="Agente de navegador", lifespan=lifespan)
 
 # CORS: permite llamadas a /api/* desde cualquier origen
 app.add_middleware(

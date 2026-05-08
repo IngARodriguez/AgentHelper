@@ -87,6 +87,44 @@ GitHub Actions construye y publica la imagen automáticamente en cada push a
 - **Un solo puerto público**: noVNC va integrado en FastAPI vía `/vnc/` + WS
   `/websockify`, no hace falta exponer el 6080 ni el 5900.
 
+## Bot de Telegram (opcional)
+
+Si defines `TELEGRAM_BOT_TOKEN` en Railway Variables, el contenedor arranca
+también un bot que escucha mensajes y ejecuta cada uno como tarea, **editando
+en vivo el mensaje del bot con el texto del agente**, estilo ChatGPT/Claude.
+
+**Setup**:
+
+1. Habla con [@BotFather](https://t.me/BotFather) en Telegram → `/newbot` →
+   sigue los pasos → copia el token.
+2. Railway → tu servicio → Variables → añade:
+   - `TELEGRAM_BOT_TOKEN` = el token de BotFather
+   - (opcional, recomendado) `TELEGRAM_ALLOWED_CHAT_IDS` = lista CSV de chat
+     IDs autorizados. Para saber tu chat ID, manda `/myid` al bot tras
+     desplegar — te responderá con tu número.
+3. Espera a que Railway redespliegue. En los logs verás:
+   `[telegram] bot iniciado. allowed_chat_ids=...`
+4. Abre Telegram, busca tu bot, manda cualquier tarea:
+
+   > Ve a wikipedia y dime el artículo del día
+
+   El bot responde con un mensaje placeholder y lo va editando con cada
+   palabra del agente, las acciones que ejecuta, errores, y al final el ✅
+   cuando completa.
+
+**Comandos del bot**:
+
+- `/start` — bienvenida
+- `/myid` — devuelve tu chat ID
+- `/status` — tarea en curso (si la hay)
+
+**Limitaciones**:
+- Solo una tarea concurrente. Si llega una segunda mientras hay otra
+  corriendo, responde "ocupado" y la descarta.
+- Telegram limita ~1 edit/sec por chat — el bot batchea actualizaciones cada
+  ~800ms. Verás el texto aparecer a saltos pequeños, no carácter por carácter.
+- Mensajes >4000 chars se truncan mostrando el principio + final.
+
 ## Variables de entorno
 
 Todas opcionales menos `ANTHROPIC_API_KEY`.
@@ -104,6 +142,9 @@ Todas opcionales menos `ANTHROPIC_API_KEY`.
 | `MAX_ITERATIONS` | `100` | Tope de iteraciones del bucle agéntico. |
 | `ACTION_DELAY_S` | `0.6` | Pausa tras cada acción antes del screenshot. |
 | `PORT` | `8000` | Railway lo pisa automáticamente. |
+| `API_TOKEN` | (vacío) | Si se define, requiere Bearer en `/api/*`. |
+| `TELEGRAM_BOT_TOKEN` | (vacío) | Si se define, arranca el bot. |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | (vacío) | CSV de chat IDs autorizados. |
 
 ## Estructura
 
@@ -116,9 +157,11 @@ AgentHelper/
 ├── agent/
 │   ├── __init__.py
 │   ├── agent.py                   # Bucle agéntico (Opus 4.7) con custom tools
-│   ├── helper.py                  # Planner + consultor (Haiku 4.5)
 │   ├── computer_tool.py           # xdotool/scrot wrappers
-│   └── server.py                  # FastAPI: dashboard + SSE + WS bridge
+│   ├── bash_tool.py               # Wrapper de subprocess para la tool bash
+│   ├── server.py                  # FastAPI: dashboard + SSE + WS bridge + /api/*
+│   ├── telegram_bot.py            # Bot de Telegram (opcional, con streaming)
+│   └── helper.py                  # (huérfano, sin uso actualmente)
 ├── docker-compose.yml
 ├── requirements.txt
 ├── railway.json                   # Config para Railway
