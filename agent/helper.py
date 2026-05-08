@@ -15,7 +15,7 @@ from typing import Any
 
 import anthropic
 
-HELPER_MODEL = os.environ.get("HELPER_MODEL", "claude-haiku-4-5")
+HELPER_MODEL = os.environ.get("HELPER_MODEL", "claude-haiku-4-5-20251001")
 
 
 PLANNER_SYSTEM = """Eres un planificador para un agente que controla un \

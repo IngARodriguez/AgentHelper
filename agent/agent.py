@@ -56,11 +56,10 @@ Tienes estas herramientas:
                                        gastar un turno completo de razonamiento.
                                        Te enviará un screenshot junto a tu pregunta.
 - bash(command, timeout=30)          — ejecuta un comando bash en el sandbox Debian.
-                                       Útil para tareas que NO requieren navegador:
-                                       descargar (curl/wget), buscar (grep/find),
-                                       procesar texto (awk/sed/jq), instalar
-                                       paquetes (apt-get install -y), etc. Devuelve
-                                       stdout, stderr y exit_code. CWD inicial: /app.
+                                       Pre-instalados: xterm, nano, curl, wget, jq,
+                                       unzip, ping, dig, ss, netstat. Para abrir una
+                                       terminal visual en el escritorio: `xterm &`.
+                                       Devuelve stdout, stderr y exit_code. CWD: /app.
 - task_complete(summary)             — llámala cuando hayas terminado la tarea
                                        y resume brevemente el resultado.
 

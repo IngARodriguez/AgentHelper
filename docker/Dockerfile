@@ -21,11 +21,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fluxbox \
     xfonts-base \
     xauth \
+    xterm \
     novnc \
     firefox-esr \
     ca-certificates \
+    curl \
+    wget \
+    jq \
+    nano \
+    unzip \
     procps \
     net-tools \
+    iputils-ping \
+    dnsutils \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/*
 
