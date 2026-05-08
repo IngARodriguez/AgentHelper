@@ -19,7 +19,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -30,11 +31,35 @@ from .agent import run_agent
 VNC_PORT = int(os.environ.get("VNC_PORT", "5900"))
 NOVNC_DIR = Path(os.environ.get("NOVNC_DIR", "/usr/share/novnc"))
 
+# Token opcional para proteger los endpoints /api/*. Si se define, los clientes
+# deben mandar `Authorization: Bearer <token>`. Si no se define, /api/* es abierto.
+API_TOKEN = os.environ.get("API_TOKEN", "").strip()
+
 app = FastAPI(title="Agente de navegador")
+
+# CORS: permite llamadas a /api/* desde cualquier origen
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 # Sirve los archivos estáticos de noVNC bajo /vnc/
 if NOVNC_DIR.exists():
     app.mount("/vnc", StaticFiles(directory=str(NOVNC_DIR), html=True), name="vnc")
+
+
+def _check_api_auth(authorization: str | None) -> None:
+    """Si API_TOKEN está definido, exige Authorization: Bearer <token>."""
+    if not API_TOKEN:
+        return  # auth desactivada
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="falta Authorization: Bearer <token>")
+    token = authorization[len("Bearer "):].strip()
+    if token != API_TOKEN:
+        raise HTTPException(status_code=403, detail="token inválido")
 
 
 # ─── Estado global ───────────────────────────────────────────────────────────
@@ -475,25 +500,15 @@ class ShellBody(BaseModel):
 
 @app.post("/task")
 def submit_task(body: TaskBody) -> dict[str, Any]:
+    """Endpoint usado por el dashboard. Misma semántica que /api/task pero
+    sin requisito de auth (ya está detrás del dashboard)."""
     task = (body.task or "").strip()
     if not task:
         raise HTTPException(status_code=400, detail="tarea vacía")
-
     with _state_lock:
         if _state["busy"]:
             raise HTTPException(status_code=409, detail="ya hay una tarea corriendo")
-
-    def runner() -> None:
-        _set_busy(True, task)
-        _emit({"type": "task_started", "task": task})
-        try:
-            run_agent(task, _emit)
-        except Exception as e:  # noqa: BLE001
-            _emit({"type": "error", "message": f"runner crashed: {e!r}"})
-        finally:
-            _set_busy(False, None)
-
-    threading.Thread(target=runner, daemon=True, name="agent-runner").start()
+    _start_task(task)
     return {"ok": True}
 
 
@@ -654,6 +669,94 @@ async def websockify_bridge(websocket: WebSocket) -> None:
 def healthz() -> dict[str, Any]:
     with _state_lock:
         return {"ok": True, "busy": _state["busy"], "task": _state["task"]}
+
+
+# ─── API pública (/api/*) ────────────────────────────────────────────────────
+
+def _start_task(task: str) -> None:
+    """Lanza el agente en un thread y broadcast el estado por SSE.
+
+    Misma lógica que /task — extraída para reutilizar en /api/task.
+    """
+
+    def runner() -> None:
+        _set_busy(True, task)
+        _emit({"type": "task_started", "task": task})
+        try:
+            run_agent(task, _emit)
+        except Exception as e:  # noqa: BLE001
+            _emit({"type": "error", "message": f"runner crashed: {e!r}"})
+        finally:
+            _set_busy(False, None)
+
+    threading.Thread(target=runner, daemon=True, name="agent-runner").start()
+
+
+@app.get("/api")
+@app.get("/api/")
+def api_root() -> dict[str, Any]:
+    """Pequeño descubrimiento del API."""
+    return {
+        "name": "AgentHelper API",
+        "version": "1",
+        "auth": "Bearer (opcional)" if API_TOKEN else "abierta",
+        "endpoints": {
+            "POST /api/task":   "encola una tarea — body {task: str}",
+            "GET  /api/status": "estado actual {busy, task}",
+            "GET  /api/events": "stream SSE de eventos del agente",
+            "POST /api/shell":  "ejecuta un comando bash — body {command, timeout?}",
+        },
+    }
+
+
+@app.post("/api/task")
+def api_submit_task(
+    body: TaskBody,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Encola una tarea. Misma semántica que el botón del dashboard.
+
+    Devuelve `409` si ya hay una tarea corriendo (con info de cuál).
+    El progreso aparece automáticamente en el dashboard (mismo SSE).
+    """
+    _check_api_auth(authorization)
+
+    task = (body.task or "").strip()
+    if not task:
+        raise HTTPException(status_code=400, detail="campo `task` vacío o ausente")
+
+    with _state_lock:
+        if _state["busy"]:
+            raise HTTPException(
+                status_code=409,
+                detail={"error": "agente ocupado", "current_task": _state["task"]},
+            )
+
+    _start_task(task)
+    return {"ok": True, "status": "started", "task": task}
+
+
+@app.get("/api/status")
+def api_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    _check_api_auth(authorization)
+    with _state_lock:
+        return {"busy": _state["busy"], "task": _state["task"]}
+
+
+@app.get("/api/events")
+def api_events(authorization: str | None = Header(default=None)) -> StreamingResponse:
+    """Mismo stream SSE que /events, pero bajo el namespace /api/."""
+    _check_api_auth(authorization)
+    return events()
+
+
+@app.post("/api/shell")
+def api_shell(
+    body: ShellBody,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _check_api_auth(authorization)
+    return shell_exec(body)
 
 
 @app.get("/debug/services")

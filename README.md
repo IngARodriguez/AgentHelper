@@ -128,14 +128,61 @@ AgentHelper/
 
 ## Endpoints
 
+### Dashboard (uso interno)
 - `GET  /` — dashboard (HTML SPA)
 - `POST /task` — `{"task": "..."}` — encola una tarea (409 si hay otra activa)
+- `POST /shell` — `{"command": "...", "timeout": 30}` — ejecuta bash
 - `GET  /events` — SSE con eventos del agente (multi-cliente, broadcast)
 - `GET  /vnc/...` — estáticos de noVNC
 - `WS   /websockify` — bridge a x11vnc:5900
-- `GET  /healthz` — JSON de estado (usado por Railway para healthcheck)
-- `GET  /debug/simple-stream` — diagnóstico de streaming
-- `GET  /debug/computer-use` — diagnóstico de computer-use beta
+- `GET  /healthz` — JSON de estado
+- `GET  /debug/services` — estado de procesos + logs internos
+- `GET  /debug/simple-stream` — diagnóstico API streaming
+
+### API pública (`/api/*`)
+
+CORS abierto (`*`). Auth Bearer opcional via env var `API_TOKEN`.
+
+- `GET  /api` — descubrimiento (lista de endpoints)
+- `POST /api/task` — encola tarea
+- `GET  /api/status` — `{busy, task}`
+- `GET  /api/events` — SSE (mismo stream que el dashboard)
+- `POST /api/shell` — ejecuta comando bash
+
+**Ejemplo curl** (sin token):
+
+```bash
+curl -X POST https://agenthelper-production.up.railway.app/api/task \
+  -H "Content-Type: application/json" \
+  -d '{"task": "Ve a wikipedia.org y dime el artículo del día"}'
+```
+
+**Con token (recomendado)**: define `API_TOKEN=algo-secreto` en Railway Variables y manda:
+
+```bash
+curl -X POST https://agenthelper-production.up.railway.app/api/task \
+  -H "Authorization: Bearer algo-secreto" \
+  -H "Content-Type: application/json" \
+  -d '{"task": "..."}'
+```
+
+Respuesta: `{"ok": true, "status": "started", "task": "..."}`. La tarea
+aparece en el dashboard en tiempo real (mismo stream SSE).
+
+**Escuchar eventos en streaming desde tu app**:
+
+```bash
+curl -N https://agenthelper-production.up.railway.app/api/events \
+  -H "Authorization: Bearer algo-secreto"
+```
+
+Devuelve eventos SSE con `data: {"type": "text|action|bash_output|done|...", ...}`.
+
+**Códigos de error**:
+- `401` — falta `Authorization: Bearer`
+- `403` — token incorrecto
+- `409` — agente ocupado (cuerpo incluye `current_task`)
+- `400` — body inválido
 
 ## Tools disponibles para el agente
 

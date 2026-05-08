@@ -8,6 +8,7 @@ services:
     environment:
       PORT: ${PORT:-8000}
       CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-4-7}
+      API_TOKEN: ${API_TOKEN:-}
       DISPLAY_WIDTH: ${DISPLAY_WIDTH:-1024}
       DISPLAY_HEIGHT: ${DISPLAY_HEIGHT:-768}
       MAX_TOKENS: ${MAX_TOKENS:-8192}
