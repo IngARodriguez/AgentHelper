@@ -3,13 +3,12 @@
 Funcionamiento:
 - Si TELEGRAM_BOT_TOKEN no está, el bot no arranca (silencioso).
 - Long polling contra api.telegram.org/getUpdates.
-- Cada mensaje del usuario lanza una tarea: el bot responde con un mensaje
-  "🤔 procesando…" y va EDITANDO ese mismo mensaje conforme el agente escribe,
-  estilo ChatGPT/Claude.
-- Throttle de ~800ms entre edits (Telegram limita ~1 edit/sec por chat).
+- Cada mensaje del usuario lanza una tarea. Mientras corre, el bot mantiene
+  un mensaje "📝 ... 🤔 procesando…" que va editando con las últimas acciones.
+- Al terminar: edita ese mensaje a "✅ completado" y envía la respuesta final
+  del agente como mensaje(s) separado(s) (split automático si es >4000 chars).
 - Eventos también se broadcastean al dashboard SSE.
-- Solo una tarea concurrente — si llega otra mientras hay una corriendo,
-  responde "ocupado".
+- Solo una tarea concurrente.
 - ALLOWED_CHAT_IDS opcional para limitar quién puede usarlo.
 """
 
@@ -27,8 +26,6 @@ from .agent import run_agent
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
-# Lista CSV opcional de chat IDs permitidos. Si está vacía, abierto a cualquiera
-# que descubra el bot. Si pones IDs, solo ellos pueden mandar tareas.
 _allowed_raw = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "").strip()
 ALLOWED_CHAT_IDS: set[str] = {x.strip() for x in _allowed_raw.split(",") if x.strip()}
 
@@ -37,8 +34,9 @@ MAX_TG_MSG_LEN = 4000  # límite real es 4096, dejamos margen
 POLL_TIMEOUT_S = 30
 
 
+# ─── Telegram API helpers ────────────────────────────────────────────────────
+
 def _tg(method: str, **params: Any) -> dict[str, Any] | None:
-    """Llama a un método del Bot API. Sync, errores se loguean y se devuelve None."""
     if not TELEGRAM_TOKEN:
         return None
     try:
@@ -54,71 +52,107 @@ def _tg(method: str, **params: Any) -> dict[str, Any] | None:
 
 
 def _send(chat_id: int, text: str) -> int | None:
-    """sendMessage simple (texto plano), devuelve message_id o None."""
-    res = _tg("sendMessage", chat_id=chat_id, text=text[:MAX_TG_MSG_LEN])
+    text = text[:MAX_TG_MSG_LEN] if len(text) > MAX_TG_MSG_LEN else text
+    if not text.strip():
+        text = "(...)"
+    res = _tg("sendMessage", chat_id=chat_id, text=text)
     if res and res.get("ok"):
         return res["result"]["message_id"]
     return None
 
 
 def _edit(chat_id: int, message_id: int, text: str) -> None:
-    """editMessageText — silencioso si no hay cambios respecto al mensaje actual."""
-    text = text[:MAX_TG_MSG_LEN]
+    text = text[:MAX_TG_MSG_LEN] if len(text) > MAX_TG_MSG_LEN else text
     if not text.strip():
         text = "(...)"
     _tg("editMessageText", chat_id=chat_id, message_id=message_id, text=text)
 
 
+def _chunk_text(text: str, max_len: int = MAX_TG_MSG_LEN) -> list[str]:
+    """Divide texto en trozos <= max_len, preferentemente cortando por salto de línea."""
+    text = text.strip()
+    if len(text) <= max_len:
+        return [text] if text else []
+    chunks: list[str] = []
+    while text:
+        if len(text) <= max_len:
+            chunks.append(text)
+            break
+        # Buscamos un \n bonito cerca del final del chunk
+        split = text.rfind("\n", max_len // 2, max_len)
+        if split == -1:
+            # Fallback: cortar por espacio
+            split = text.rfind(" ", max_len // 2, max_len)
+        if split == -1:
+            split = max_len  # corte duro
+        chunks.append(text[:split].rstrip())
+        text = text[split:].lstrip()
+    return chunks
+
+
+# ─── Sesión de tarea ─────────────────────────────────────────────────────────
+
 class TelegramTaskSession:
-    """Una tarea enviada por un usuario de Telegram. Editamos en bucle el mensaje
-    del bot conforme llega texto/acciones del agente."""
+    """Una tarea iniciada por un usuario de Telegram. Mantiene un mensaje
+    "progreso" editado en vivo + envía la respuesta final como mensaje(s) nuevo(s)."""
 
     def __init__(self, chat_id: int, message_id: int, task: str):
         self.chat_id = chat_id
-        self.message_id = message_id
+        self.progress_msg_id = message_id
         self.task = task
         self.agent_text: list[str] = []
-        self.actions: list[str] = []  # últimas acciones, sólo mostramos las recientes
+        self.actions: list[str] = []
         self.errors: list[str] = []
         self.status = "🤔 procesando…"
+        self.finished = False
         self._last_edit_at = 0.0
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()  # protege el estado mutable
         self._dirty = True
 
-    def render(self) -> str:
-        parts: list[str] = []
-        parts.append(f"📝 {self.task[:120]}")
-        parts.append(f"\n{self.status}\n")
-        if self.actions:
-            recent = self.actions[-4:]
-            parts.append("Acciones recientes:\n" + "\n".join(f"▸ {a}" for a in recent))
-        body = "".join(self.agent_text).strip()
-        if body:
-            parts.append("\n" + body)
-        for err in self.errors[-3:]:
-            parts.append(f"\n⚠️ {err}")
-        text = "\n".join(parts)
-        if len(text) > MAX_TG_MSG_LEN:
-            head = text[:300]
-            tail = text[-(MAX_TG_MSG_LEN - 320):]
-            text = head + "\n\n[…]\n\n" + tail
-        return text
-
-    def maybe_flush(self, force: bool = False) -> None:
+    def render_progress(self) -> str:
+        """Mensaje de progreso (sin texto del agente, ese va aparte al final)."""
         with self._lock:
-            if not self._dirty and not force:
+            parts = [f"📝 {self.task[:200]}", f"\n{self.status}"]
+            if self.actions:
+                recent = self.actions[-5:]
+                parts.append("\nAcciones recientes:\n" + "\n".join(f"▸ {a}" for a in recent))
+            for err in self.errors[-3:]:
+                parts.append(f"\n⚠️ {err}")
+        return "\n".join(parts)[:MAX_TG_MSG_LEN]
+
+    def _flush_progress(self, force: bool = False) -> None:
+        """Edita el mensaje de progreso, throttled. Llamar SIEMPRE fuera del lock."""
+        with self._lock:
+            if self.finished and not force:
                 return
             now = time.monotonic()
             if not force and (now - self._last_edit_at) < EDIT_THROTTLE_S:
                 return
+            if not self._dirty and not force:
+                return
             self._last_edit_at = now
             self._dirty = False
-            text = self.render()
-        # Llamada HTTP fuera del lock
-        _edit(self.chat_id, self.message_id, text)
+        text = self.render_progress()
+        _edit(self.chat_id, self.progress_msg_id, text)
+
+    def _finalize(self) -> None:
+        """Llamado UNA vez al recibir done/error. Cierra el progreso y manda la respuesta."""
+        with self._lock:
+            if self.finished:
+                return
+            self.finished = True
+            agent_text = "".join(self.agent_text).strip()
+        # 1. Edit final del mensaje de progreso (resumen breve, sin texto del agente)
+        self._flush_progress(force=True)
+        # 2. Mandar la respuesta del agente como mensaje(s) nuevo(s)
+        if agent_text:
+            chunks = _chunk_text(agent_text)
+            for chunk in chunks:
+                _send(self.chat_id, chunk)
 
     def on_event(self, event: dict[str, Any]) -> None:
         t = event.get("type")
+        finalize_after = False
         with self._lock:
             self._dirty = True
             if t == "text":
@@ -126,7 +160,6 @@ class TelegramTaskSession:
             elif t == "action":
                 action = event.get("action") or "?"
                 args = event.get("input") or {}
-                # Resumen de args sin spam
                 args_brief = ", ".join(f"{k}={v}" for k, v in list(args.items())[:3])
                 if len(args_brief) > 80:
                     args_brief = args_brief[:77] + "…"
@@ -139,14 +172,16 @@ class TelegramTaskSession:
                 self.actions.append(f"bash $ {cmd[:60]} → exit {ec}")
             elif t == "done":
                 self.status = "✅ " + (event.get("message") or "completado")
-                self.maybe_flush(force=True)
-                return
+                finalize_after = True
             elif t == "error":
                 self.status = "❌ error"
                 self.errors.append(str(event.get("message"))[:300])
-                self.maybe_flush(force=True)
-                return
-        self.maybe_flush()
+                finalize_after = True
+        # Llamadas HTTP siempre fuera del lock (evita deadlock)
+        if finalize_after:
+            self._finalize()
+        else:
+            self._flush_progress()
 
 
 # ─── Estado global del bot ───────────────────────────────────────────────────
@@ -162,17 +197,17 @@ def _is_authorized(chat_id: int) -> bool:
 
 
 def _handle_command(chat_id: int, text: str) -> bool:
-    """Devuelve True si era un comando y lo manejamos."""
     cmd = text.split()[0].lower()
     if cmd == "/start":
         _send(chat_id, (
-            "👋 Hola, soy el agente AgentHelper.\n\n"
-            "Mándame una tarea por mensaje y la ejecuto en un navegador real, "
-            "soltando el resultado aquí mismo en streaming.\n\n"
+            "👋 Hola, soy AgentHelper.\n\n"
+            "Mándame una tarea y la ejecuto en un navegador real.\n"
+            "Mientras trabajo iré actualizando un mensaje con las acciones, "
+            "y al terminar te envío la respuesta final.\n\n"
             "Comandos:\n"
             "/start — esta ayuda\n"
             "/status — estado actual\n"
-            "/myid — tu chat id (útil para TELEGRAM_ALLOWED_CHAT_IDS)\n"
+            "/myid — tu chat id"
         ))
         return True
     if cmd == "/myid":
@@ -190,8 +225,7 @@ def _handle_command(chat_id: int, text: str) -> bool:
 
 
 def _run_task_for_telegram(chat_id: int, message_id: int, task: str) -> None:
-    """Ejecuta el agente dentro del thread del bot, broadcasteando al dashboard."""
-    # Import diferido para evitar circular imports
+    """Ejecuta el agente, broadcasteando al dashboard y a la sesión de Telegram."""
     from . import server
 
     session = TelegramTaskSession(chat_id, message_id, task)
@@ -203,21 +237,31 @@ def _run_task_for_telegram(chat_id: int, message_id: int, task: str) -> None:
     server._emit({"type": "task_started", "task": task})
 
     def combined_on_event(event: dict[str, Any]) -> None:
-        # 1. Broadcast al dashboard SSE
-        server._emit(event)
-        # 2. Update del mensaje de Telegram
-        session.on_event(event)
+        try:
+            server._emit(event)
+        except Exception as e:  # noqa: BLE001
+            print(f"[telegram] error broadcasteando al dashboard: {e!r}", flush=True)
+        try:
+            session.on_event(event)
+        except Exception as e:  # noqa: BLE001
+            print(f"[telegram] error en session.on_event: {e!r}", flush=True)
 
     try:
         run_agent(task, combined_on_event)
     except Exception as e:  # noqa: BLE001
         combined_on_event({"type": "error", "message": f"runner crashed: {e!r}"})
     finally:
+        # Asegurar finalización de la sesión Telegram aunque algo salga mal
+        try:
+            if not session.finished:
+                session._finalize()
+        except Exception as e:  # noqa: BLE001
+            print(f"[telegram] error en _finalize: {e!r}", flush=True)
+        # Liberar slot SIEMPRE
         server._set_busy(False, None)
         with _busy_lock:
             _current_session = None
-        # Asegurar último edit
-        session.maybe_flush(force=True)
+        print(f"[telegram] tarea cerrada, slot liberado: {task[:60]!r}", flush=True)
 
 
 def _handle_message(chat_id: int, text: str) -> None:
@@ -232,16 +276,15 @@ def _handle_message(chat_id: int, text: str) -> None:
     if text.startswith("/") and _handle_command(chat_id, text):
         return
 
-    # Si está ocupado, rechaza
     with _busy_lock:
         if _current_session is not None:
             _send(chat_id, f"⏳ ocupado con: {_current_session.task[:120]}")
             return
 
-    # Crea el mensaje placeholder y arranca la tarea
-    initial_text = f"📝 {text[:120]}\n\n🤔 procesando…"
+    initial_text = f"📝 {text[:200]}\n\n🤔 procesando…"
     msg_id = _send(chat_id, initial_text)
     if msg_id is None:
+        _send(chat_id, "❌ no pude enviar el mensaje placeholder; abortando.")
         return
 
     threading.Thread(
@@ -253,7 +296,6 @@ def _handle_message(chat_id: int, text: str) -> None:
 
 
 def _poll_loop() -> None:
-    """Long polling de getUpdates. Se lanza en un thread daemon."""
     print(f"[telegram] bot iniciado. allowed_chat_ids={ALLOWED_CHAT_IDS or 'todos'}", flush=True)
     offset = 0
     backoff = 1.0
@@ -275,7 +317,6 @@ def _poll_loop() -> None:
                 print(f"[telegram] getUpdates not-ok: {data}", flush=True)
                 time.sleep(3)
                 continue
-
             for upd in data.get("result", []):
                 offset = upd["update_id"] + 1
                 msg = upd.get("message")
@@ -286,7 +327,6 @@ def _poll_loop() -> None:
                 text = msg.get("text") or ""
                 if chat_id is None or not text:
                     continue
-                # Manejar el mensaje en otro thread para no bloquear el polling
                 threading.Thread(
                     target=_handle_message,
                     args=(chat_id, text),
@@ -302,7 +342,6 @@ def _poll_loop() -> None:
 
 
 def start_bot() -> None:
-    """Llamado desde el lifespan del FastAPI. Si no hay token, no hace nada."""
     if not TELEGRAM_TOKEN:
         print("[telegram] TELEGRAM_BOT_TOKEN no definido, bot desactivado", flush=True)
         return
