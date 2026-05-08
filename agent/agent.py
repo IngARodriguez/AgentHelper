@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 import anthropic
 
-from . import bash_tool, computer_tool, helper
+from . import bash_tool, computer_tool
 
 # ─── Config (env-driven) ─────────────────────────────────────────────────────
 
@@ -50,11 +50,6 @@ Tienes estas herramientas:
 - mouse_move(x, y)                   — mueve el ratón sin clickar.
 - left_click_drag(x1, y1, x2, y2)    — arrastra desde (x1,y1) a (x2,y2).
 - wait(seconds)                      — espera segundos (max 30).
-- consult_helper(question)           — pregunta al ayudante (modelo rápido) cuando
-                                       estés bloqueado, dudes de coordenadas, o
-                                       quieras planificar los siguientes pasos sin
-                                       gastar un turno completo de razonamiento.
-                                       Te enviará un screenshot junto a tu pregunta.
 - bash(command, timeout=30)          — ejecuta un comando bash en el sandbox Debian.
                                        Pre-instalados: xterm, nano, curl, wget, jq,
                                        unzip, ping, dig, ss, netstat. Para abrir una
@@ -199,20 +194,6 @@ TOOLS: list[dict[str, Any]] = [
                 },
             },
             "required": ["command"],
-        },
-    },
-    {
-        "name": "consult_helper",
-        "description": (
-            "Consulta al ayudante (Haiku 4.5, rápido) cuando estés bloqueado o "
-            "necesites planificación. Pasa una pregunta concreta. Se le adjunta "
-            "automáticamente el screenshot actual para que pueda responder con "
-            "coordenadas o estrategia."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {"question": {"type": "string"}},
-            "required": ["question"],
         },
     },
     {
@@ -367,15 +348,7 @@ def run_agent(task: str, on_event: EventCallback) -> None:
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    # 1. Helper: plan inicial (si está habilitado)
-    plan: str | None = None
-    if os.environ.get("HELPER_ENABLED", "1") == "1":
-        on_event({"type": "log", "message": f"ayudante ({helper.HELPER_MODEL}) generando plan…"})
-        plan = helper.plan_task(task, client)
-        if plan:
-            on_event({"type": "helper_plan", "plan": plan})
-
-    initial_content, last_screenshot = _initial_user_content(task, plan)
+    initial_content, last_screenshot = _initial_user_content(task, plan=None)
     messages: list[dict[str, Any]] = [{"role": "user", "content": initial_content}]
 
     try:
@@ -435,19 +408,6 @@ def run_agent(task: str, on_event: EventCallback) -> None:
                             "tool_use_id": blk.id,
                             "content": bash_tool.to_tool_result_content(bash_result),
                             "is_error": bool(bash_result.get("error")) or bash_result["exit_code"] != 0,
-                        })
-                        continue
-
-                    # consult_helper: llama al ayudante con el último screenshot
-                    if name == "consult_helper":
-                        question = args.get("question", "")
-                        answer = helper.consult_helper(question, client, last_screenshot)
-                        on_event({"type": "helper_answer", "question": question, "answer": answer})
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": blk.id,
-                            "content": [{"type": "text", "text": answer}],
-                            "is_error": False,
                         })
                         continue
 
