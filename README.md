@@ -144,9 +144,10 @@ AgentHelper/
 CORS abierto (`*`). Auth Bearer opcional via env var `API_TOKEN`.
 
 - `GET  /api` — descubrimiento (lista de endpoints)
-- `POST /api/task` — encola tarea
+- `POST /api/task` — encola tarea async (respuesta inmediata)
+- `POST /api/task/stream` — **encola y mantiene la conexión soltando el texto del agente en tiempo real**
 - `GET  /api/status` — `{busy, task}`
-- `GET  /api/events` — SSE (mismo stream que el dashboard)
+- `GET  /api/events` — SSE global (broadcast del dashboard)
 - `POST /api/shell` — ejecuta comando bash
 
 **Ejemplo curl** (sin token):
@@ -169,11 +170,31 @@ curl -X POST https://agenthelper-production.up.railway.app/api/task \
 Respuesta: `{"ok": true, "status": "started", "task": "..."}`. La tarea
 aparece en el dashboard en tiempo real (mismo stream SSE).
 
-**Escuchar eventos en streaming desde tu app**:
+**Streaming en tiempo real (recomendado)** — POST que mantiene la conexión y va devolviendo el texto del agente conforme lo genera:
 
 ```bash
-curl -N https://agenthelper-production.up.railway.app/api/events \
-  -H "Authorization: Bearer algo-secreto"
+curl -N -X POST https://agenthelper-production.up.railway.app/api/task/stream \
+  -H "Content-Type: application/json" \
+  -d '{"task": "Ve a wikipedia y dime el artículo del día"}'
+```
+
+Salida (texto plano, va apareciendo conforme el agente lo dice):
+```
+Voy a navegar a wikipedia.org para ver el artículo del día.
+Ya puedo ver el artículo destacado del día. Voy a desplazarme un poco...
+Ya tengo toda la información sobre el artículo destacado de hoy.
+
+[done] tarea completada: ...
+```
+
+Variantes:
+- `?actions=1` — incluye líneas `[action: key_press {"key":"ctrl+l"}]` inline
+- `?format=json` — SSE con cada evento como JSON (`data: {"type": "text", ...}`)
+
+**Escuchar eventos sueltos (sin disparar tarea)** — útil si ya enviaste la tarea por otro canal:
+
+```bash
+curl -N https://agenthelper-production.up.railway.app/api/events
 ```
 
 Devuelve eventos SSE con `data: {"type": "text|action|bash_output|done|...", ...}`.

@@ -19,7 +19,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -701,10 +701,11 @@ def api_root() -> dict[str, Any]:
         "version": "1",
         "auth": "Bearer (opcional)" if API_TOKEN else "abierta",
         "endpoints": {
-            "POST /api/task":   "encola una tarea — body {task: str}",
-            "GET  /api/status": "estado actual {busy, task}",
-            "GET  /api/events": "stream SSE de eventos del agente",
-            "POST /api/shell":  "ejecuta un comando bash — body {command, timeout?}",
+            "POST /api/task":         "encola una tarea async — body {task}; respuesta inmediata",
+            "POST /api/task/stream":  "encola una tarea y stremea texto en vivo (text/plain). ?actions=1 para acciones inline. ?format=json para SSE completo",
+            "GET  /api/status":       "estado actual {busy, task}",
+            "GET  /api/events":       "stream SSE global (broadcast del dashboard)",
+            "POST /api/shell":        "ejecuta un comando bash — body {command, timeout?}",
         },
     }
 
@@ -757,6 +758,118 @@ def api_shell(
 ) -> dict[str, Any]:
     _check_api_auth(authorization)
     return shell_exec(body)
+
+
+@app.post("/api/task/stream")
+def api_task_stream(
+    body: TaskBody,
+    actions: bool = Query(default=False, description="incluir líneas de acción inline"),
+    format: str = Query(default="text", description="text | json"),
+    authorization: str | None = Header(default=None),
+) -> StreamingResponse:
+    """Encola una tarea y mantiene la conexión abierta streameando lo que va
+    diciendo el agente en tiempo real.
+
+    - `format=text` (default): plain text, solo el texto del agente.
+    - `format=text&actions=1`: como text pero con líneas `[action: ...]`.
+    - `format=json`: SSE con cada evento serializado (texto, acciones, errores, fin).
+
+    Además, los eventos también se broadcastean al dashboard, por lo que la tarea
+    aparece en el panel del navegador exactamente como si la hubieras escrito ahí.
+
+    Si el agente está ocupado devuelve 409.
+    """
+    _check_api_auth(authorization)
+    task = (body.task or "").strip()
+    if not task:
+        raise HTTPException(status_code=400, detail="campo `task` vacío o ausente")
+    with _state_lock:
+        if _state["busy"]:
+            raise HTTPException(
+                status_code=409,
+                detail={"error": "agente ocupado", "current_task": _state["task"]},
+            )
+
+    # Cola exclusiva de este request — el dashboard sigue recibiendo todo via _emit
+    client_q: queue.Queue = queue.Queue(maxsize=10000)
+    SENTINEL = object()
+
+    def per_request_emit(event: dict[str, Any]) -> None:
+        # Broadcast al dashboard (bus global)
+        _emit(event)
+        # Y a este cliente concreto
+        try:
+            client_q.put_nowait(event)
+        except queue.Full:
+            pass  # cliente lento — dropeamos eventos pero el agente sigue
+
+    def runner() -> None:
+        _set_busy(True, task)
+        per_request_emit({"type": "task_started", "task": task})
+        try:
+            run_agent(task, per_request_emit)
+        except Exception as e:  # noqa: BLE001
+            per_request_emit({"type": "error", "message": f"runner crashed: {e!r}"})
+        finally:
+            _set_busy(False, None)
+            try:
+                client_q.put_nowait({"_sentinel_": SENTINEL})
+            except queue.Full:
+                pass
+
+    threading.Thread(target=runner, daemon=True, name="agent-runner-stream").start()
+
+    fmt = (format or "text").lower()
+    media_type = "text/event-stream" if fmt == "json" else "text/plain; charset=utf-8"
+
+    def render_text(event: dict[str, Any]) -> str | None:
+        t = event.get("type")
+        if t == "text":
+            return event.get("text", "")
+        if t == "action" and actions:
+            args = event.get("input") or {}
+            args_str = json.dumps(args, ensure_ascii=False)
+            return f"\n[action: {event.get('action')} {args_str}]\n"
+        if t == "tool_result_error":
+            return f"\n[error tool: {event.get('message')}]\n"
+        if t == "bash_output" and actions:
+            cmd = event.get("command", "")
+            ec = event.get("exit_code")
+            return f"\n[bash $ {cmd} → exit {ec}]\n"
+        if t == "error":
+            return f"\n\n[error] {event.get('message')}\n"
+        if t == "done":
+            return f"\n\n[done] {event.get('message', '')}\n"
+        return None  # eventos que no se incluyen en text mode
+
+    def gen():
+        while True:
+            try:
+                event = client_q.get(timeout=20)
+            except queue.Empty:
+                if fmt == "json":
+                    yield ": heartbeat\n\n"
+                continue
+
+            if event.get("_sentinel_") is SENTINEL:
+                return
+
+            if fmt == "json":
+                yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+            else:
+                chunk = render_text(event)
+                if chunk:
+                    yield chunk
+
+    return StreamingResponse(
+        gen(),
+        media_type=media_type,
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.get("/debug/services")
