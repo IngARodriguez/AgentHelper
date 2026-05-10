@@ -19,7 +19,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-00ff9c?style=for-the-badge&labelColor=0a0a0a)](#licencia)
 [![Prompt Caching](https://img.shields.io/badge/prompt_caching-ON-00ff9c?style=for-the-badge&labelColor=0a0a0a)](#coste)
 [![Status](https://img.shields.io/badge/status-active-00ff9c?style=for-the-badge&labelColor=0a0a0a)](#)  
-[![Made for](https://img.shields.io/badge/made_for-Pentesting_·_Vulnerability_Research_·_Bug_Hunting-00ff9c?style=for-the-badge&labelColor=C42204)](#por-qué-agenthelper)
+[![Made for](https://img.shields.io/badge/made_for-Pentesting_·_Vulnerability_Research_·_Bug_Hunting-00ff9c?style=for-the-badge&labelColor=0a0a0a)](#por-qué-agenthelper)
 
 **[ Quickstart ](#quickstart)** &nbsp;·&nbsp;
 **[ Por qué ](#por-qué-agenthelper)** &nbsp;·&nbsp;
