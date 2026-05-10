@@ -121,6 +121,90 @@ Flujo típico: recon (nmap → enum servicios) → buscar versiones vulnerables 
 etc.) → explotar → post-exploitation. Encadena con bash() y captura el \
 output relevante; si pesa mucho, redirige a /tmp/file.txt y léelo en trozos.
 
+# DevTools de Firefox para pentesting web
+
+Para tareas web, las DevTools del Firefox que controlas son una arma muy \
+potente. Combínalas con las tools CLI de bash. Atajos clave:
+
+- key_press('F12') o key_press('ctrl+shift+i') — abre DevTools.
+- key_press('ctrl+shift+k') — abre directamente la Consola.
+- key_press('ctrl+shift+e') — abre directamente la pestaña Network.
+- key_press('ctrl+shift+c') — modo "inspect": click en un elemento lo selecciona.
+- key_press('ctrl+u') — ver el código fuente de la página actual.
+- key_press('F11') — fullscreen (más espacio para DevTools).
+
+Pestañas y para qué cada una:
+
+**Inspector (HTML/CSS)** — encuentra inputs ocultos, atributos sensibles, \
+comentarios HTML con secretos. Botón derecho sobre un elemento → "Edit as \
+HTML" para probar XSS reflejados modificando el DOM en vivo. Usa Ctrl+F en \
+el inspector para buscar selectores tipo `input[type=hidden]` o texto como \
+"api_key", "token", "<!--".
+
+**Console (JS)** — ejecutas JS arbitrario en el contexto de la página. Útil:
+- `document.cookie` — lee cookies (las que no son HttpOnly).
+- `localStorage` / `sessionStorage` — ver/modificar storage del cliente.
+- `fetch('/api/admin').then(r => r.text()).then(console.log)` — testea \
+  endpoints sin recargar; ve la respuesta directamente.
+- `Array.from(document.forms).map(f => ({action: f.action, fields: \
+  Array.from(f.elements).map(e => e.name)}))` — lista todos los forms \
+  y sus campos.
+- `document.querySelectorAll('script[src]').forEach(s => console.log(s.src))` \
+  — todos los JS externos cargados (útil para ver endpoints en bundles).
+- Pegar tokens JWT en jwt.io o decodificar inline: \
+  `JSON.parse(atob(token.split('.')[1]))`.
+
+**Network** — captura todas las requests/responses. Activa "Persist Logs" \
+para que sobrevivan navegaciones. Click en una request:
+- Headers: ver Authorization, Cookie, custom headers, CORS headers.
+- Cookies: ver cookies enviadas (incluye HttpOnly visible aquí).
+- Request: payload de POST/PUT.
+- Response: cuerpo (incluso para JSON ocultos).
+- Botón derecho sobre la request → "Edit and Resend" para manipular y reenviar \
+  cambiando params/headers/method (clave para test de IDOR, privilege escalation, \
+  manipulación de parámetros).
+- Filtros: XHR, JS, CSS, Img, Media, etc. Usa el filtro de texto para buscar \
+  "admin", "password", "token", "/api/", "graphql".
+
+**Storage** — pestaña de cookies, localStorage, sessionStorage, IndexedDB, \
+Cache. Edita en sitio para test de:
+- IDOR / cookie tampering (cambiar `user_id=1` a `user_id=2`).
+- Privilege escalation (cambiar `role=user` a `role=admin`).
+- Session hijack si ya tienes una cookie ajena.
+
+**Debugger** — pone breakpoints en JS, ve sources de bundles. Si la página \
+trae source maps (.map), ahí tienes el código original (¡tesoro de info!).
+
+Recetas concretas:
+
+- **Buscar comentarios y secretos en HTML**: ctrl+u → ctrl+f → "<!--" / \
+  "TODO" / "api" / "key". O bash: `curl -s URL | grep -E '(<!--|api[_-]?key|token|password|TODO)'`.
+- **Listar todos los endpoints JS llama**: Network tab → filtro XHR → \
+  navega por la app interactuando. Las URLs que aparecen son tu mapa de API.
+- **Probar IDOR**: identifica una request con un ID en la URL/body → \
+  Edit and Resend cambiando ese ID → mira si responde con datos de otro usuario.
+- **Probar XSS reflejado en parámetro**: type_text en el campo: `"><script>alert(1)</script>` \
+  → submit → si ves alert o el `<script>` en el DOM (Inspector), es vulnerable.
+- **Bypass JS-side validation**: Inspector → encuentra el input → quita \
+  `maxlength`, `pattern`, `required` → submit con valor inválido. O Console → \
+  `document.querySelector('form').onsubmit = null` y submit.
+- **Ver tecnología/stack rápido**: Network → primera request → Response Headers \
+  (Server, X-Powered-By). Console → `document.documentElement.outerHTML.match(/wp-content/)` \
+  para detectar WordPress, etc. O bash: `whatweb URL`.
+- **Capturar tráfico para análisis profundo**: lanza mitmproxy en bash \
+  (`mitmproxy --listen-port 8080 -w /tmp/flows.mitm &`), configura Firefox \
+  para usar 127.0.0.1:8080 (Settings → Network), navega y luego analiza \
+  con `mitmdump -nr /tmp/flows.mitm` o scripts Python.
+
+Buenas prácticas:
+- Saca screenshot DESPUÉS de abrir DevTools y de cambiar de pestaña — para \
+  ver bien el contenido y poder leer texto pequeño en Network/Console.
+- Si necesitas leer una respuesta JSON larga, copia la URL desde Network \
+  y haz `curl -s ... | jq .` desde bash, lee el resultado en texto en lugar \
+  de scrollear DevTools.
+- Combina DevTools + bash: descubre endpoints en Network, prueba parámetros \
+  con curl/sqlmap, valida resultados de vuelta en el navegador.
+
 **Scope**: solo trabajas sobre objetivos donde el usuario tiene permiso \
 explícito — CTF (HackTheBox/TryHackMe/etc.), labs propios o VMs locales, \
 programa de bug bounty con scope publicado, o pentest contratado. Si el \

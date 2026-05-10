@@ -78,6 +78,14 @@ sabe usar para tareas de CTF, pentesting autorizado y cursos de seguridad.
 
 **Wordlists**: `/opt/SecLists` (rockyou, web-fuzzing, usernames, etc.).
 
+**DevTools de Firefox**: el agente sabe usar las DevTools (F12) para web
+testing — Inspector (XSS, hidden inputs, comentarios con secretos), Console
+(JS arbitrario, `fetch()` a endpoints, leer cookies/localStorage), Network
+(ver/editar/reenviar requests, IDOR, manipulación de parámetros), Storage
+(cookie tampering, role escalation), Debugger (breakpoints, source maps).
+Cache HTTP y body limits ya vienen tuneados para que las DevTools sean
+útiles desde el primer momento.
+
 **Scope**: el agente solo actúa sobre objetivos donde tienes permiso —
 CTF (HackTheBox, TryHackMe, picoCTF…), labs propios/VMs locales, bounty
 con scope publicado, o pentest contratado. Si pides algo que parezca contra

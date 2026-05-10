@@ -96,6 +96,36 @@ user_pref("extensions.update.enabled", false);
 user_pref("extensions.update.autoUpdateDefault", false);
 user_pref("browser.search.update", false);
 
+// ─── DevTools para pentesting web ────────────────────────────────────────────
+// El agente usa DevTools (F12) para análisis web. Estas prefs hacen el flujo
+// más útil: cache off al abrir DevTools, no truncar responses, persistir logs.
+user_pref("devtools.cache.disabled", true);
+user_pref("devtools.netmonitor.persistlog", true);
+user_pref("devtools.netmonitor.responseBodyLimit", 0);
+user_pref("devtools.netmonitor.requestBodyLimit", 0);
+user_pref("devtools.webconsole.timestampMessages", true);
+user_pref("devtools.webconsole.input.editor", false);
+user_pref("devtools.toolbox.host", "bottom");
+user_pref("devtools.toolbox.previousHost", "bottom");
+user_pref("devtools.toolbox.footer.height", 350);
+// Habilitar inspección del chrome del navegador (útil para tests avanzados).
+user_pref("devtools.chrome.enabled", true);
+user_pref("devtools.debugger.remote-enabled", true);
+// No pedir confirmación al pegar grandes textos en la consola.
+user_pref("devtools.selfxss.count", 100);
+// Source maps activadas (cuando los servidores los expongan, ver código original).
+user_pref("devtools.source-map.client-service.enabled", true);
+// Welcome / what's new de DevTools off.
+user_pref("devtools.whatsnew.enabled", false);
+user_pref("devtools.onboarding.telemetry.logged", true);
+
+// ─── Permitir instalar extensiones desde el navegador (addons.mozilla.org) ───
+// El agente puede ir a AMO e instalar Wappalyzer / FoxyProxy / HackTools si
+// los necesita. Por defecto Firefox-ESR ya permite addons firmados.
+user_pref("xpinstall.signatures.required", true);
+user_pref("extensions.autoDisableScopes", 0);
+user_pref("extensions.enabledScopes", 15);
+
 // ─── Prompts y modales que paralizan al agente ───────────────────────────────
 user_pref("browser.shell.checkDefaultBrowser", false);
 user_pref("browser.tabs.warnOnClose", false);
