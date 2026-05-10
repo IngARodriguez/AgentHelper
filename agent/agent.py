@@ -140,9 +140,6 @@ Forense / esteganografía / binarios:
 - ROPgadget — búsqueda de gadgets ROP (`ROPgadget --binary ./bin`)
 - pwntools (Python) — exploit dev, payloads de stack/heap/format string
 
-Mobile (Android):
-- apktool — decompilar/recompilar APKs (`apktool d app.apk`)
-
 Cloud (AWS):
 - awscli — cuando tienes credenciales filtradas para test de IAM, S3, etc.
 

@@ -153,18 +153,21 @@ RUN git clone --depth 1 https://github.com/cddmp/enum4linux-ng.git /opt/enum4lin
     && chmod +x /opt/enum4linux-ng/enum4linux-ng.py \
     && rm -rf /opt/enum4linux-ng/.git
 
-# ─── Apt extras: AD pentesting, mobile, debugging, QoL ───────────────────────
+# ─── Apt extras: pentesting + debugging + QoL ────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    responder \
     aircrack-ng \
-    apktool \
     gdb \
     ltrace strace \
     ruby ruby-dev make pkg-config \
     libcurl4-openssl-dev libxml2-dev libxslt1-dev zlib1g-dev \
-    default-jre-headless \
     bat fzf httpie ripgrep \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/*
+
+# Responder no está en repos Debian, lo clonamos del repo oficial.
+RUN git clone --depth 1 https://github.com/lgandx/Responder.git /opt/Responder \
+    && ln -sf /opt/Responder/Responder.py /usr/local/bin/responder \
+    && chmod +x /opt/Responder/Responder.py \
+    && rm -rf /opt/Responder/.git
 
 # ─── Gems: WPScan + Evil-WinRM ───────────────────────────────────────────────
 RUN gem install --no-document wpscan evil-winrm \

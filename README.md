@@ -128,8 +128,6 @@ pre-cargados), `theHarvester`, `gau`, `waybackurls`, `gitleaks`,
 `pwntools` (Python), `xxd`, `strings`, `file`, `objdump`, `readelf`, `nm`,
 `ltrace`, `strace`.
 
-**Mobile (Android)**: `apktool`.
-
 **Cloud (AWS)**: `awscli`.
 
 **Wireless**: `aircrack-ng` suite (cracking de capturas .cap/.pcap).
