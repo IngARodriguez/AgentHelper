@@ -101,22 +101,38 @@ asociados, breaches, repos públicos, info filtrada.
 **Recon de red**: `nmap`, `masscan`, `arp-scan`, `tcpdump`, `tshark`,
 `whois`, `dig`, `dnsenum`, `dnsrecon`, `traceroute`, `mtr`.
 
-**Web**: `gobuster`, `dirb`, `wfuzz`, `nikto`, `sqlmap`, `whatweb`,
-`sslscan`, `mitmproxy`.
+**Web fuzzing / scanning**: `ffuf`, `katana`, `gobuster`, `dirb`, `dirsearch`,
+`wfuzz`, `nikto`, `sqlmap`, `commix`, `dalfox` (XSS), `arjun` (param
+discovery), `wpscan`, `whatweb`, `sslscan`, `mitmproxy`, `naabu`, `dnsx`.
 
 **Brute force / cracking**: `hydra`, `ncrack`, `medusa`, `john`,
-`hashcat`, `crunch`.
+`hashcat`, `hashid`, `crunch`.
 
-**SMB / AD / Windows**: `smbclient`, `enum4linux-ng`, `ldap-utils`,
-`impacket` (`psexec.py`, `secretsdump.py`, `GetNPUsers.py`,
+**AD / Windows pentesting**: `nxc`/`netexec` (swiss army SMB/LDAP/MSSQL/
+WinRM/SSH), `bloodhound-python` (path mapping), `certipy-ad` (AD CS
+ESC1-11), `pypykatz` (mimikatz puro Python), `coercer` (PetitPotam &co.),
+`kerbrute`, `evil-winrm`, `responder`, `enum4linux-ng`, `smbclient`,
+`ldap-utils`, `impacket` (`psexec.py`, `secretsdump.py`, `GetNPUsers.py`,
 `ntlmrelayx.py`, …).
+
+**Pivoting / túneles**: `chisel`, `proxychains4`, `socat`, `tor`.
 
 **OSINT**: `subfinder`, `assetfinder`, `httpx`, `nuclei` (con templates
 pre-cargados), `theHarvester`, `gau`, `waybackurls`, `gitleaks`,
 `sherlock`, `holehe`, `socialscan`, `shodan`, `censys`, `waybackpy`.
 
-**Forense / esteganografía / binarios**: `binwalk`, `foremost`, `steghide`,
-`exiftool`, `xxd`, `strings`, `objdump`, `readelf`, `nm`.
+**Forense / esteganografía**: `binwalk`, `foremost`, `steghide`, `exiftool`,
+`volatility3` (memoria RAM), `bulk-extractor`.
+
+**Binary / reversing / exploit dev**: `gdb` con GEF preinstalado, `ROPgadget`,
+`pwntools` (Python), `xxd`, `strings`, `file`, `objdump`, `readelf`, `nm`,
+`ltrace`, `strace`.
+
+**Mobile (Android)**: `apktool`.
+
+**Cloud (AWS)**: `awscli`.
+
+**Wireless**: `aircrack-ng` suite (cracking de capturas .cap/.pcap).
 
 **Exploit DB**: `searchsploit <termino>` (exploit-database completo en `/opt/exploitdb`).
 
@@ -125,8 +141,6 @@ pre-cargados), `theHarvester`, `gau`, `waybackurls`, `gitleaks`,
 
 **Wordlists**: `/opt/SecLists` (rockyou, common-passwords, web-fuzzing,
 usernames, payloads).
-
-**Proxies / pivoting**: `proxychains4`, `tor`, `socat`, `stunnel4`.
 
 ## DevTools de Firefox
 

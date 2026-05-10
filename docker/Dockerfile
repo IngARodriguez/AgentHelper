@@ -153,6 +153,96 @@ RUN git clone --depth 1 https://github.com/cddmp/enum4linux-ng.git /opt/enum4lin
     && chmod +x /opt/enum4linux-ng/enum4linux-ng.py \
     && rm -rf /opt/enum4linux-ng/.git
 
+# ─── Apt extras: AD pentesting, mobile, debugging, QoL ───────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    responder \
+    aircrack-ng \
+    apktool \
+    gdb \
+    ltrace strace \
+    ruby ruby-dev make pkg-config \
+    libcurl4-openssl-dev libxml2-dev libxslt1-dev zlib1g-dev \
+    default-jre-headless \
+    bat fzf httpie ripgrep \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/*
+
+# ─── Gems: WPScan + Evil-WinRM ───────────────────────────────────────────────
+RUN gem install --no-document wpscan evil-winrm \
+    && rm -rf /tmp/* /var/tmp/* /usr/lib/ruby/gems/*/cache
+
+# ─── Pip: AD pentesting + web exploitation + binary + forensics + cloud ──────
+# netexec  = swiss army de AD (rebrand de crackmapexec, soporta SMB/LDAP/MSSQL/WinRM/SSH)
+# bloodhound = ingestor Python para BloodHound (mapeo de ataque AD)
+# certipy-ad = explotación de AD CS (ESC1-ESC11 y derivados)
+# pypykatz = mimikatz puro Python (extracción credenciales offline)
+# coercer = forzar autenticación SMB de víctimas (PetitPotam, PrinterBug...)
+# arjun = HTTP parameter discovery
+# commix = command injection scanner
+# dirsearch = brute force de paths (alternativa moderna a dirb)
+# ROPgadget = búsqueda de gadgets ROP en binarios
+# hashid = identificación de tipo de hash
+# volatility3 = análisis forense de memoria (RAM dumps)
+# awscli = AWS CLI (cloud pentesting)
+RUN pip3 install --break-system-packages --no-cache-dir \
+    netexec \
+    bloodhound \
+    certipy-ad \
+    pypykatz \
+    coercer \
+    arjun \
+    commix \
+    dirsearch \
+    ROPgadget \
+    hashid \
+    volatility3 \
+    awscli \
+    && rm -rf /root/.cache /tmp/* /var/tmp/*
+
+# ─── GEF: extensión moderna para gdb (CTF binary pwn) ────────────────────────
+RUN curl -sSL https://gef.blah.cat/py -o /opt/gef.py \
+    && echo "source /opt/gef.py" > /root/.gdbinit
+
+# ─── Go binaries: web fuzzing avanzado, crawler, scanners, AD, pivoting ──────
+ARG FFUF_VER=2.1.0
+ARG KATANA_VER=1.1.2
+ARG NAABU_VER=2.3.4
+ARG DNSX_VER=1.2.2
+ARG DALFOX_VER=2.10.0
+ARG KERBRUTE_VER=1.0.3
+ARG CHISEL_VER=1.10.1
+RUN set -eux; \
+    workdir=$(mktemp -d); cd "$workdir"; \
+    fetch_zip() { \
+        curl -sSL "$2" -o pkg.zip; \
+        rm -rf extract && mkdir extract; \
+        unzip -qo pkg.zip -d extract; \
+        mv "extract/$1" /usr/local/bin/; \
+        chmod +x "/usr/local/bin/$1"; \
+        rm -rf pkg.zip extract; \
+    }; \
+    fetch_tgz() { \
+        curl -sSL "$2" -o pkg.tgz; \
+        rm -rf extract && mkdir extract; \
+        tar -xzf pkg.tgz -C extract; \
+        mv "extract/$1" /usr/local/bin/; \
+        chmod +x "/usr/local/bin/$1"; \
+        rm -rf pkg.tgz extract; \
+    }; \
+    fetch_tgz ffuf      "https://github.com/ffuf/ffuf/releases/download/v${FFUF_VER}/ffuf_${FFUF_VER}_linux_amd64.tar.gz"; \
+    fetch_zip katana    "https://github.com/projectdiscovery/katana/releases/download/v${KATANA_VER}/katana_${KATANA_VER}_linux_amd64.zip"; \
+    fetch_zip naabu     "https://github.com/projectdiscovery/naabu/releases/download/v${NAABU_VER}/naabu_${NAABU_VER}_linux_amd64.zip"; \
+    fetch_zip dnsx      "https://github.com/projectdiscovery/dnsx/releases/download/v${DNSX_VER}/dnsx_${DNSX_VER}_linux_amd64.zip"; \
+    fetch_tgz dalfox    "https://github.com/hahwul/dalfox/releases/download/v${DALFOX_VER}/dalfox_${DALFOX_VER}_linux_amd64.tar.gz"; \
+    cd / && rm -rf "$workdir"; \
+    # kerbrute: binario directo, no archive
+    curl -sSL "https://github.com/ropnop/kerbrute/releases/download/v${KERBRUTE_VER}/kerbrute_linux_amd64" -o /usr/local/bin/kerbrute; \
+    chmod +x /usr/local/bin/kerbrute; \
+    # chisel: gz comprimido con un solo binario
+    curl -sSL "https://github.com/jpillora/chisel/releases/download/v${CHISEL_VER}/chisel_${CHISEL_VER}_linux_amd64.gz" -o /tmp/chisel.gz; \
+    gzip -d /tmp/chisel.gz; \
+    mv /tmp/chisel /usr/local/bin/chisel; \
+    chmod +x /usr/local/bin/chisel
+
 COPY agent /app/agent
 COPY docker/firefox-profile /app/firefox-profile
 COPY docker/start.sh /app/start.sh

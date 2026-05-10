@@ -85,28 +85,66 @@ Recon y scanning de red:
 - tcpdump, tshark (captura/análisis de tráfico)
 
 Web testing:
-- gobuster / dirb / wfuzz — directory & vhost busting
+- ffuf — fuzzer de referencia, mucho más rápido que gobuster (recomendado).
+  `ffuf -u https://X/FUZZ -w /opt/SecLists/Discovery/Web-Content/common.txt -mc 200,301,403`
+- katana — crawler moderno de ProjectDiscovery con headless y JS parsing.
+- gobuster / dirb / dirsearch / wfuzz — alternativas para dir/vhost busting
 - nikto — vulnerabilidades web conocidas
-- sqlmap — detección y explotación de SQLi
+- sqlmap — detección y explotación de SQLi (`sqlmap -u "URL" --batch --dbs`)
+- commix — command injection scanner
+- dalfox — XSS scanner especializado, payloads encadenados (`dalfox url URL`)
+- arjun — descubre parámetros HTTP ocultos (`arjun -u URL`)
+- wpscan — WordPress (`wpscan --url URL --enumerate vp,vt,u`)
 - whatweb — fingerprinting de stack
 - sslscan — análisis TLS/SSL
 - mitmproxy — proxy de interceptación
+- naabu — port scanner Go rápido (alternativa a nmap para barridos grandes)
+- dnsx — DNS toolkit Go (resolve/brute/PTR/SRV)
 
 Brute force / passwords / hashes:
 - hydra, ncrack, medusa — bruteforce de servicios (ssh/ftp/http/etc.)
 - john, hashcat — cracking offline de hashes
+- hashid — identifica el tipo de hash (`hashid '$2a$...'`)
 - crunch — generación de wordlists
 
-SMB / AD / Windows:
-- smbclient, enum4linux-ng (`enum4linux-ng -A IP`) — enumeración SMB
-- ldap-utils (ldapsearch) — enumeración LDAP/AD
-- impacket (Python) — psexec.py, smbclient.py, GetNPUsers.py, secretsdump.py, etc.
+SMB / AD / Windows (toolkit completo):
+- nxc / netexec — swiss army de AD: `nxc smb IP -u user -p pass --shares`,
+  módulos SMB/LDAP/MSSQL/WinRM/SSH, ataques pre-built (lsassy, mimikatz,
+  sam, ntds dump, kerberoasting…).
+- bloodhound-python (`bloodhound-python -d DOMAIN -u user -p pass -ns DC -c All`) —
+  ingest para mapear paths de ataque en BloodHound.
+- certipy-ad — explotación AD CS (ESC1-ESC11 y vías derivadas).
+- pypykatz — mimikatz puro Python para extraer creds offline (lsass.dmp, SAM,
+  SECURITY, NTDS.dit). `pypykatz lsa minidump lsass.dmp`.
+- coercer — fuerza autenticación SMB de víctimas (PetitPotam, PrinterBug…).
+- kerbrute — bruteforce/userenum Kerberos.
+- evil-winrm — shell WinRM con upload/download (`evil-winrm -i IP -u user -p pass`).
+- responder — envenenar LLMNR/NBT-NS/MDNS y capturar hashes NetNTLM.
+- smbclient, enum4linux-ng, ldap-utils (ldapsearch).
+- impacket (`psexec.py`, `wmiexec.py`, `secretsdump.py`, `GetNPUsers.py`,
+  `GetUserSPNs.py`, `ntlmrelayx.py`).
+
+Pivoting / túneles:
+- chisel — TCP tunneling rápido sobre HTTP/WS (`chisel server -p 443 --reverse` /
+  `chisel client SERVER:443 R:1080:socks`).
+- proxychains4 — encadenar conexiones a través de un SOCKS (Tor o chisel).
+- socat — relays TCP/UDP arbitrarios.
 
 Forense / esteganografía / binarios:
 - binwalk, foremost — extracción de archivos embebidos
 - steghide — esteganografía clásica
 - exiftool — metadatos
-- xxd, strings, file, objdump, readelf, nm — inspección rápida de binarios
+- volatility3 — forense de memoria (RAM dumps): `vol3 -f mem.raw windows.pslist`
+- xxd, strings, file, objdump, readelf, nm — inspección rápida
+- gdb con GEF (auto-cargado) — debugging interactivo, exploit dev (`gdb ./bin`)
+- ROPgadget — búsqueda de gadgets ROP (`ROPgadget --binary ./bin`)
+- pwntools (Python) — exploit dev, payloads de stack/heap/format string
+
+Mobile (Android):
+- apktool — decompilar/recompilar APKs (`apktool d app.apk`)
+
+Cloud (AWS):
+- awscli — cuando tienes credenciales filtradas para test de IAM, S3, etc.
 
 Wordlists: /opt/SecLists (rockyou, common-passwords, web-fuzzing, usernames…).
 
