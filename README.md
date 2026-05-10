@@ -35,7 +35,7 @@
 > [!TIP]
 > Agente Claude que opera como **red teamer autónomo**. Controla un Firefox real
 > por coordenadas (no DOM) y tiene shell completa con toolbox tipo Kali.
-> Pensado para **CTFs, bug hunting con scope, pentesting, vulnerability researc y
+> Pensado para **CTFs, bug hunting con scope, pentesting, vulnerability research y
 > doxing osint**.
 
 ---
