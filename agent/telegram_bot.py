@@ -285,8 +285,9 @@ def _run_task_for_telegram(chat_id: int, message_id: int, task: str) -> None:
         except Exception as e:  # noqa: BLE001
             print(f"[telegram] session.on_event error: {e!r}", flush=True)
 
+    final_messages = None
     try:
-        run_agent(task, combined_on_event)
+        final_messages = run_agent(task, combined_on_event)
     except Exception as e:  # noqa: BLE001
         print(f"[telegram] run_agent crashed: {e!r}\n{traceback.format_exc()}", flush=True)
         combined_on_event({"type": "error", "message": f"runner crashed: {e!r}"})
@@ -296,6 +297,11 @@ def _run_task_for_telegram(chat_id: int, message_id: int, task: str) -> None:
             session._flush(force=True)
         except Exception as e:  # noqa: BLE001
             print(f"[telegram] final flush error: {e!r}", flush=True)
+        # Guardar sesión en server para que /resume funcione desde dashboard
+        try:
+            server._save_session(final_messages, end_reason="done")
+        except Exception:
+            pass
         server._set_busy(False, None)
         with _busy_lock:
             _current_session = None

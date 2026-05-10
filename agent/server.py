@@ -89,6 +89,40 @@ _control: dict[str, Any] = {
     "injections": queue.Queue(maxsize=100),
 }
 
+# Contexto persistido entre runs para poder reanudar (RESUME). Se sobrescribe
+# al final de cada run con la lista `messages` resultante. Se limpia solo
+# cuando el usuario inicia una tarea fresca con /task (no /resume).
+_session_lock = threading.Lock()
+_session: dict[str, Any] = {
+    "messages": None,        # list[dict] | None
+    "last_task": None,       # str | None — la tarea original que dio inicio
+    "ended_at": None,        # timestamp ISO
+    "end_reason": None,      # str — done / error / interrupt / refusal
+}
+
+
+def _save_session(messages: list[dict[str, Any]] | None, end_reason: str) -> None:
+    if not messages:
+        return
+    import datetime
+    with _session_lock:
+        _session["messages"] = messages
+        _session["ended_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+        _session["end_reason"] = end_reason
+    _emit({
+        "type": "session_resumable",
+        "messages_count": len(messages),
+        "ended_at": _session["ended_at"],
+    })
+
+
+def _clear_session() -> None:
+    with _session_lock:
+        _session["messages"] = None
+        _session["last_task"] = None
+        _session["ended_at"] = None
+        _session["end_reason"] = None
+
 
 def _reset_control() -> None:
     """Limpia interrupt + injections. Se llama al iniciar una tarea nueva."""
@@ -408,6 +442,30 @@ INDEX_HTML = """<!DOCTYPE html>
       animation: pulse-fast 0.6s steps(2) infinite;
       pointer-events: none;
     }
+    /* RESUME button — solo visible cuando idle Y hay sesión persistida */
+    #resume {
+      display: none;
+      background: transparent;
+      color: var(--cyan);
+      border: 1px solid var(--cyan);
+      border-left: 0;
+      border-radius: 0;
+      padding: 0 14px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: all 0.12s;
+      text-shadow: 0 0 4px rgba(92,243,255,0.3);
+    }
+    #resume.visible { display: block; }
+    #resume:hover {
+      background: var(--cyan);
+      color: var(--bg);
+      box-shadow: 0 0 12px rgba(92,243,255,0.4);
+      text-shadow: none;
+    }
     @keyframes pulse-fast { 50% { opacity: 0.6; } }
 
     /* Inyección del usuario en el log */
@@ -467,6 +525,7 @@ INDEX_HTML = """<!DOCTYPE html>
     <div id="input-row">
       <textarea id="task" rows="1" placeholder="target / task..." autofocus></textarea>
       <button id="send">EXEC</button>
+      <button id="resume" title="Reanudar la última sesión (con o sin instrucción nueva)">RESUME</button>
       <button id="stop" title="Detener tarea actual al final del turno">STOP</button>
     </div>
   </div>
@@ -485,10 +544,16 @@ INDEX_HTML = """<!DOCTYPE html>
     const taskInput = document.getElementById('task');
     const sendBtn = document.getElementById('send');
     const stopBtn = document.getElementById('stop');
+    const resumeBtn = document.getElementById('resume');
     const statusLabel = document.getElementById('status-label');
     const dot = document.getElementById('dot');
     const conn = document.getElementById('conn');
     let isBusy = false;
+    let hasResumable = false;
+
+    function updateResumeBtn() {
+      resumeBtn.classList.toggle('visible', !isBusy && hasResumable);
+    }
 
     function appendNode(node) {
       // Insertar antes del cursor para que siempre quede al final
@@ -519,8 +584,15 @@ INDEX_HTML = """<!DOCTYPE html>
         : 'target / task...';
       statusLabel.textContent = busy ? 'executing' : 'idle';
       dot.classList.toggle('busy', busy);
+      updateResumeBtn();
       if (!busy) taskInput.focus();
     }
+
+    // Al cargar, consultar si hay sesión resumable (tras refresh, etc.)
+    fetch('/session').then(r => r.json()).then(s => {
+      hasResumable = !!s.resumable;
+      updateResumeBtn();
+    }).catch(() => {});
 
     let evt = null;
     function connectStream() {
@@ -557,6 +629,10 @@ INDEX_HTML = """<!DOCTYPE html>
           setBusy(m.busy);
         } else if (m.type === 'task_started') {
           appendBlock('\\n>>> ' + m.task, 'user');
+        } else if (m.type === 'session_resumable') {
+          hasResumable = true;
+          updateResumeBtn();
+          appendBlock('· session saved — RESUME enabled (' + m.messages_count + ' msgs)', 'sys');
         } else if (m.type === 'user_inject_queued') {
           const div = document.createElement('div');
           div.className = 'inject-block';
@@ -682,8 +758,31 @@ INDEX_HTML = """<!DOCTYPE html>
       else submitTask();
     }
 
+    async function resumeTask() {
+      if (isBusy) return;
+      const followUp = taskInput.value.trim();
+      try {
+        const res = await fetch('/resume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task: followUp })
+        });
+        if (!res.ok) {
+          const txt = await res.text();
+          appendBlock('[resume err] ' + txt, 'err');
+          return;
+        }
+        taskInput.value = '';
+        taskInput.style.height = 'auto';
+        // hasResumable se mantiene; la sesión se sobrescribe cuando termine.
+      } catch (e) {
+        appendBlock('[resume err] ' + e.message, 'err');
+      }
+    }
+
     sendBtn.onclick = dispatchSubmit;
     stopBtn.onclick = stopTask;
+    resumeBtn.onclick = resumeTask;
     taskInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -906,6 +1005,42 @@ def interrupt() -> dict[str, Any]:
     return {"ok": True}
 
 
+class ResumeBody(BaseModel):
+    task: str = ""  # opcional: instrucción nueva al reanudar
+
+
+@app.get("/session")
+def session_state() -> dict[str, Any]:
+    """Indica si hay contexto resumable disponible (para que la UI muestre RESUME)."""
+    with _session_lock:
+        msgs = _session["messages"]
+        return {
+            "resumable": bool(msgs),
+            "messages_count": len(msgs) if msgs else 0,
+            "ended_at": _session["ended_at"],
+            "end_reason": _session["end_reason"],
+        }
+
+
+@app.post("/resume")
+def resume(body: ResumeBody) -> dict[str, Any]:
+    """Reanuda la última sesión, opcionalmente con una instrucción nueva.
+
+    Si no hay sesión previa, devuelve 400. La sesión persiste en memoria
+    hasta que el usuario inicie una tarea fresca con /task o reinicie el
+    contenedor.
+    """
+    with _state_lock:
+        if _state["busy"]:
+            raise HTTPException(status_code=409, detail="ya hay una tarea corriendo")
+    with _session_lock:
+        if not _session["messages"]:
+            raise HTTPException(status_code=400, detail="no hay sesión previa para reanudar")
+    follow_up = (body.task or "").strip()
+    _start_task(follow_up, resume=True)
+    return {"ok": True, "resumed": True, "follow_up": follow_up}
+
+
 @app.post("/inject")
 def inject(body: InjectBody) -> dict[str, Any]:
     """Encola un mensaje del usuario para inyectar entre turnos del agente.
@@ -929,21 +1064,35 @@ def inject(body: InjectBody) -> dict[str, Any]:
 
 # ─── API pública (/api/*) ────────────────────────────────────────────────────
 
-def _start_task(task: str) -> None:
+def _start_task(task: str, resume: bool = False) -> None:
     """Lanza el agente en un thread y broadcast el estado por SSE.
 
-    Misma lógica que /task — extraída para reutilizar en /api/task.
+    `resume=True` reanuda con `_session["messages"]` como contexto previo y
+    `task` (si no vacío) se añade como instrucción nueva. Si False, arranca
+    fresco y limpia el contexto previo.
     """
     _reset_control()
+    prior: list[dict[str, Any]] | None = None
+    if resume:
+        with _session_lock:
+            prior = list(_session["messages"]) if _session["messages"] else None
+        if not prior:
+            _emit({"type": "log", "message": "no hay sesión previa para reanudar — arrancando fresco"})
+    else:
+        _clear_session()
+
+    display_task = task if task else "(reanudando sin instrucción nueva)"
 
     def runner() -> None:
-        _set_busy(True, task)
-        _emit({"type": "task_started", "task": task})
+        _set_busy(True, display_task)
+        _emit({"type": "task_started", "task": display_task})
+        final_messages: list[dict[str, Any]] | None = None
         try:
-            run_agent(task, _emit, control=_control)
+            final_messages = run_agent(task, _emit, control=_control, prior_messages=prior)
         except Exception as e:  # noqa: BLE001
             _emit({"type": "error", "message": f"runner crashed: {e!r}"})
         finally:
+            _save_session(final_messages, end_reason="done")
             _set_busy(False, None)
 
     threading.Thread(target=runner, daemon=True, name="agent-runner").start()
@@ -965,6 +1114,8 @@ def api_root() -> dict[str, Any]:
             "POST /api/shell":        "ejecuta un comando bash — body {command, timeout?}",
             "POST /api/interrupt":    "detiene la tarea actual al final del turno en curso",
             "POST /api/inject":       "inyecta un mensaje al agente entre turnos — body {message}",
+            "GET  /api/session":      "info de la última sesión (si es resumable)",
+            "POST /api/resume":       "reanuda la última sesión — body {task} opcional con nueva instrucción",
         },
     }
 
@@ -1034,6 +1185,21 @@ def api_inject(
     return inject(body)
 
 
+@app.get("/api/session")
+def api_session(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    _check_api_auth(authorization)
+    return session_state()
+
+
+@app.post("/api/resume")
+def api_resume(
+    body: ResumeBody,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _check_api_auth(authorization)
+    return resume(body)
+
+
 @app.post("/api/task/stream")
 def api_task_stream(
     body: TaskBody,
@@ -1078,15 +1244,18 @@ def api_task_stream(
             pass  # cliente lento — dropeamos eventos pero el agente sigue
 
     _reset_control()
+    _clear_session()
 
     def runner() -> None:
         _set_busy(True, task)
         per_request_emit({"type": "task_started", "task": task})
+        final_messages: list[dict[str, Any]] | None = None
         try:
-            run_agent(task, per_request_emit, control=_control)
+            final_messages = run_agent(task, per_request_emit, control=_control)
         except Exception as e:  # noqa: BLE001
             per_request_emit({"type": "error", "message": f"runner crashed: {e!r}"})
         finally:
+            _save_session(final_messages, end_reason="done")
             _set_busy(False, None)
             try:
                 client_q.put_nowait({"_sentinel_": SENTINEL})
