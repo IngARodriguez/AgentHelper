@@ -261,13 +261,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # mitm6: spoofing IPv6 + WPAD para AD
 # ldapdomaindump: dump completo info LDAP (users, computers, GPO, ACLs)
 # bloodyAD: alternativa a bloodhound-python con ataques offensive built-in
-# whatwaf: detección de WAF
+# wafw00f: detección de WAF (whatwaf no está en PyPI, wafw00f es el estándar)
 # s3scanner: enum buckets S3 abiertos
 RUN pip3 install --break-system-packages --no-cache-dir \
     mitm6 \
     ldapdomaindump \
     bloodyAD \
-    whatwaf \
+    wafw00f \
     s3scanner \
     && rm -rf /root/.cache /tmp/* /var/tmp/*
 

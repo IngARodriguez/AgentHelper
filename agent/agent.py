@@ -98,7 +98,7 @@ Web testing:
 - xsstrike — XSS scanner avanzado con bypass de WAF (`xsstrike -u URL --params`)
 - arjun — descubre parámetros HTTP ocultos (`arjun -u URL`)
 - paramspider — extrae parámetros del archivo wayback (`paramspider -d dominio.com`)
-- whatwaf — detección de WAF (`whatwaf -u URL`)
+- wafw00f — detección de WAF (`wafw00f URL`)
 - wpscan — WordPress (`wpscan --url URL --enumerate vp,vt,u`)
 - whatweb — fingerprinting de stack
 - sslscan — análisis TLS/SSL

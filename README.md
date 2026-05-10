@@ -107,7 +107,7 @@ asociados, breaches, repos públicos, info filtrada.
 **Web fuzzing / scanning**: `ffuf`, `feroxbuster` (recursive), `katana`,
 `gobuster`, `dirb`, `dirsearch`, `wfuzz`, `nikto`, `sqlmap`, `commix`,
 `dalfox`, `xsstrike` (XSS con bypass WAF), `arjun`, `paramspider`,
-`whatwaf`, `wpscan`, `whatweb`, `sslscan`, `mitmproxy`, `naabu`, `dnsx`,
+`wafw00f`, `wpscan`, `whatweb`, `sslscan`, `mitmproxy`, `naabu`, `dnsx`,
 `gowitness` (screenshots URLs en masa), `subzy` (subdomain takeover).
 
 **Brute force / cracking**: `hydra`, `ncrack`, `medusa`, `john`,
