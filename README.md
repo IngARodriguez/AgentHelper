@@ -76,14 +76,20 @@ GitHub Actions construye y publica la imagen automáticamente en cada push a
 
 ### Notas para el plan free
 
-- **Memoria**: Railway Trial da ~512MB. Con Firefox + Xvfb + Python eso es muy
-  justo, puede OOM-killear. Si te pasa, sube a Hobby ($5/mes) que da 8GB. La
-  imagen está optimizada para correr en 800MB-1GB.
+- **Memoria**: Railway Trial da ~512MB. Los defaults están pensados para local.
+  Si despliegas en free, baja vía variables de entorno:
+  ```
+  DISPLAY_WIDTH=1024
+  DISPLAY_HEIGHT=768
+  DISPLAY_DEPTH=16
+  MAX_TOKENS=4096
+  KEEP_RECENT_SCREENSHOTS=3
+  SCREENSHOT_QUALITY=70
+  ```
+  Si aun así te quedas corto, sube a Hobby ($5/mes) que da 8GB.
 - **Sleep tras inactividad**: Railway duerme servicios sin tráfico. El primer
   acceso tras dormir tarda ~10-15s (arranca Xvfb, fluxbox, Firefox y uvicorn
   en orden). Es normal.
-- **Resolución bajada a 1024x768** por defecto: menos RAM y menos tokens por
-  screenshot. Súbela en `DISPLAY_WIDTH`/`DISPLAY_HEIGHT` si necesitas más espacio.
 - **Un solo puerto público**: noVNC va integrado en FastAPI vía `/vnc/` + WS
   `/websockify`, no hace falta exponer el 6080 ni el 5900.
 
@@ -125,6 +131,27 @@ en vivo el mensaje del bot con el texto del agente**, estilo ChatGPT/Claude.
   ~800ms. Verás el texto aparecer a saltos pequeños, no carácter por carácter.
 - Mensajes >4000 chars se truncan mostrando el principio + final.
 
+## Optimizaciones de rendimiento y estabilidad
+
+La imagen viene tuneada para uso local con docker compose. Lo que se hace:
+
+**Fluidez del navegador (panel noVNC)**
+- `x11vnc` con `-threads -defer 1 -wait 5 -noxdamage -cursor most`: polling rápido y multi-thread.
+- Iframe noVNC con `quality=8&compression=2`: alta calidad sobre localhost.
+
+**Anti-crash de Firefox** (perfil dedicado en `docker/firefox-profile/user.js`)
+- WebRender / aceleración GPU desactivadas — en Xvfb no hay GPU, intentarlo es la causa #1 de crashes.
+- Sandboxes desactivados (`MOZ_DISABLE_*_SANDBOX=1`): Docker sin user namespaces no los soporta.
+- Diálogos de crash report y "restore session" suprimidos (paralizan al agente).
+- DRM/Widevine, autoplay y captive portal probe desactivados (módulos opcionales que crashean en headless).
+- Telemetry, Pocket, sponsored, prompts de update y permisos camera/mic/geo/notif bloqueados por defecto.
+- Watchdog en `start.sh`: si Firefox muere, lo relanza con backoff (hasta 20 respawns).
+
+**Latencia / coste de la API**
+- Prompt caching (`cache_control: ephemeral`) en system prompt y tools → ~90% menos input tokens repetidos por turno tras el primero.
+- Screenshots en JPEG quality 90 vía Pillow → 3-5× menos bytes que PNG.
+- Truncado de screenshots viejos en el historial: solo los últimos `KEEP_RECENT_SCREENSHOTS` (10 por defecto) se mandan tal cual; los anteriores se reemplazan por un placeholder de texto. Pon `KEEP_RECENT_SCREENSHOTS=0` para desactivar.
+
 ## Variables de entorno
 
 Todas opcionales menos `ANTHROPIC_API_KEY`.
@@ -136,15 +163,20 @@ Todas opcionales menos `ANTHROPIC_API_KEY`.
 | `CLAUDE_MODEL` | `claude-opus-4-7` | Modelo principal. `claude-sonnet-4-6` para más velocidad. |
 | `HELPER_MODEL` | `claude-haiku-4-5` | Modelo del ayudante (rápido y barato). |
 | `HELPER_ENABLED` | `1` | `0` para desactivar el ayudante. |
-| `DISPLAY_WIDTH` | `1024` | Ancho del display Xvfb. |
-| `DISPLAY_HEIGHT` | `768` | Alto del display Xvfb. |
+| `DISPLAY_WIDTH` | `1280` | Ancho del display Xvfb. |
+| `DISPLAY_HEIGHT` | `800` | Alto del display Xvfb. |
+| `DISPLAY_DEPTH` | `24` | Profundidad de color del framebuffer (24=full, 16=memoria). |
 | `MAX_TOKENS` | `8192` | Tokens máx por turno del agente. |
 | `MAX_ITERATIONS` | `100` | Tope de iteraciones del bucle agéntico. |
-| `ACTION_DELAY_S` | `0.6` | Pausa tras cada acción antes del screenshot. |
+| `ACTION_DELAY_S` | `0.4` | Pausa tras cada acción antes del screenshot. |
+| `KEEP_RECENT_SCREENSHOTS` | `10` | Cuántos screenshots recientes conservar en el historial. `0` = sin truncar. |
+| `SCREENSHOT_FORMAT` | `jpeg` | `jpeg` (recomendado) o `png` (píxel-perfect). |
+| `SCREENSHOT_QUALITY` | `90` | Calidad JPEG 1-95. 90 ≈ PNG visualmente. |
 | `PORT` | `8000` | Railway lo pisa automáticamente. |
 | `API_TOKEN` | (vacío) | Si se define, requiere Bearer en `/api/*`. |
 | `TELEGRAM_BOT_TOKEN` | (vacío) | Si se define, arranca el bot. |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | (vacío) | CSV de chat IDs autorizados. |
+| `SKIP_FIREFOX` | `0` | `1` arranca el contenedor sin Firefox (debug). |
 
 ## Estructura
 
@@ -153,11 +185,13 @@ AgentHelper/
 ├── .github/workflows/docker.yml   # CI: build + push a GHCR
 ├── docker/
 │   ├── Dockerfile                 # Debian slim + Firefox + Xvfb + xdotool
-│   └── start.sh                   # Entrypoint: orquesta procesos
+│   ├── start.sh                   # Entrypoint: orquesta procesos + watchdog Firefox
+│   └── firefox-profile/
+│       └── user.js                # Prefs anti-crash y anti-prompt
 ├── agent/
 │   ├── __init__.py
-│   ├── agent.py                   # Bucle agéntico (Opus 4.7) con custom tools
-│   ├── computer_tool.py           # xdotool/scrot wrappers
+│   ├── agent.py                   # Bucle agéntico (Opus 4.7) con prompt caching
+│   ├── computer_tool.py           # xdotool/scrot + JPEG via Pillow
 │   ├── bash_tool.py               # Wrapper de subprocess para la tool bash
 │   ├── server.py                  # FastAPI: dashboard + SSE + WS bridge + /api/*
 │   ├── telegram_bot.py            # Bot de Telegram (opcional, con streaming)

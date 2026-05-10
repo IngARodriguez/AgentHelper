@@ -8,6 +8,7 @@ la API espera como `tool_result` (texto, imagen base64, o ambos).
 from __future__ import annotations
 
 import base64
+import io
 import os
 import shlex
 import subprocess
@@ -20,7 +21,14 @@ SCREENSHOT_PATH = Path("/tmp/agent_screenshot.png")
 
 # Pausa después de cada acción para que la UI se asiente antes del siguiente screenshot.
 # Ajustable vía env var por si una página concreta necesita más.
-ACTION_DELAY_S = float(os.environ.get("ACTION_DELAY_S", "0.6"))
+ACTION_DELAY_S = float(os.environ.get("ACTION_DELAY_S", "0.4"))
+
+# Formato de imagen al modelo. JPEG con quality 90 = casi indistinguible de
+# PNG visualmente (la API de Anthropic transcodea a su formato igualmente),
+# pero ~3-5x menos bytes que PNG → upload más rápido y menos input tokens.
+# Pon SCREENSHOT_FORMAT=png si necesitas píxel-perfect (raro).
+SCREENSHOT_FORMAT = os.environ.get("SCREENSHOT_FORMAT", "jpeg").lower()
+SCREENSHOT_QUALITY = int(os.environ.get("SCREENSHOT_QUALITY", "90"))
 
 # Acciones que devuelven una imagen al modelo. Las que no aparecen aquí solo
 # devuelven texto (cursor_position) o nada relevante.
@@ -77,8 +85,13 @@ def _coord(c: Any) -> tuple[int, int]:
     return int(c[0]), int(c[1])
 
 
-def _take_screenshot() -> str:
-    """Captura el display actual y devuelve la imagen como base64 PNG."""
+def _take_screenshot() -> tuple[str, str]:
+    """Captura el display y devuelve (base64, media_type).
+
+    Por defecto convierte el PNG de scrot a JPEG quality 75 con Pillow → ~8x
+    menos bytes que mandar PNG crudo. Mucho menos tráfico hacia la API
+    (latencia menor) y menos input tokens por imagen.
+    """
     if SCREENSHOT_PATH.exists():
         SCREENSHOT_PATH.unlink()
     # scrot a veces falla la primera vez tras un click rápido; reintentamos una vez.
@@ -86,8 +99,22 @@ def _take_screenshot() -> str:
     for _ in range(2):
         try:
             _run(["scrot", "-o", str(SCREENSHOT_PATH)], timeout=5.0)
-            data = SCREENSHOT_PATH.read_bytes()
-            return base64.b64encode(data).decode("ascii")
+            png_bytes = SCREENSHOT_PATH.read_bytes()
+            if SCREENSHOT_FORMAT == "png":
+                return base64.b64encode(png_bytes).decode("ascii"), "image/png"
+            # JPEG path: cargar con Pillow, recomprimir.
+            try:
+                from PIL import Image
+                img = Image.open(io.BytesIO(png_bytes))
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=SCREENSHOT_QUALITY, optimize=True)
+                return base64.b64encode(buf.getvalue()).decode("ascii"), "image/jpeg"
+            except Exception as e:
+                # Si Pillow falla por cualquier razón, caemos a PNG sin reventar la tarea.
+                print(f"[screenshot] PIL error, fallback to PNG: {e!r}", flush=True)
+                return base64.b64encode(png_bytes).decode("ascii"), "image/png"
         except (ToolError, FileNotFoundError) as e:
             last_err = e
             time.sleep(0.2)
@@ -98,11 +125,12 @@ def execute(action: str, **kwargs: Any) -> dict[str, Any]:
     """Ejecuta una acción y devuelve un dict con el formato del tool_result content.
 
     Returns: dict con keys:
-        - "image_b64": str | None  (base64 PNG si la acción produce screenshot)
-        - "text": str | None       (texto, p.ej. cursor_position devuelve "X,Y")
-        - "error": str | None      (si algo falló)
+        - "image_b64":   str | None  (base64 si la acción produce screenshot)
+        - "image_media": str | None  (media_type, "image/jpeg" o "image/png")
+        - "text":        str | None  (texto, p.ej. cursor_position devuelve "X,Y")
+        - "error":       str | None  (si algo falló)
     """
-    out: dict[str, Any] = {"image_b64": None, "text": None, "error": None}
+    out: dict[str, Any] = {"image_b64": None, "image_media": None, "text": None, "error": None}
 
     try:
         if action == "screenshot":
@@ -219,7 +247,9 @@ def execute(action: str, **kwargs: Any) -> dict[str, Any]:
         # Pequeña pausa para que la UI reaccione antes de capturar.
         time.sleep(ACTION_DELAY_S)
         if action in ACTIONS_THAT_SCREENSHOT:
-            out["image_b64"] = _take_screenshot()
+            b64, media = _take_screenshot()
+            out["image_b64"] = b64
+            out["image_media"] = media
 
     except ToolError as e:
         out["error"] = str(e)
@@ -242,7 +272,7 @@ def to_tool_result_content(result: dict[str, Any]) -> list[dict[str, Any]]:
             "type": "image",
             "source": {
                 "type": "base64",
-                "media_type": "image/png",
+                "media_type": result.get("image_media") or "image/jpeg",
                 "data": result["image_b64"],
             },
         })

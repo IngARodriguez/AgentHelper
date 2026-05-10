@@ -288,7 +288,7 @@ INDEX_HTML = """<!DOCTYPE html>
   </div>
   <div class="panel">
     <header><span class="dot"></span> pantalla del navegador (noVNC)</header>
-    <iframe src="/vnc/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=websockify" id="vnc"></iframe>
+    <iframe src="/vnc/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=websockify&quality=8&compression=2&show_dot=0" id="vnc"></iframe>
   </div>
 
   <script>

@@ -30,6 +30,12 @@ DISPLAY_HEIGHT = int(os.environ.get("DISPLAY_HEIGHT", "800"))
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "8192"))
 MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "100"))
 
+# Cuántos screenshots recientes conservar tal cual en el historial. Los más
+# viejos se sustituyen por un placeholder de texto. 0 = sin truncar (manda
+# todos al modelo, llena más contexto pero da continuidad visual completa).
+# Default 10: continuidad visual amplia sin saturar contexto en tareas largas.
+KEEP_RECENT_SCREENSHOTS = int(os.environ.get("KEEP_RECENT_SCREENSHOTS", "10"))
+
 SYSTEM_PROMPT = """Eres un agente que controla un escritorio Linux con Firefox \
 abierto, dentro de un sandbox Docker.
 
@@ -285,7 +291,7 @@ def _initial_user_content(task: str, plan: str | None) -> tuple[list[dict[str, A
             "type": "image",
             "source": {
                 "type": "base64",
-                "media_type": "image/png",
+                "media_type": initial.get("image_media") or "image/jpeg",
                 "data": screenshot_b64,
             },
         })
@@ -294,12 +300,83 @@ def _initial_user_content(task: str, plan: str | None) -> tuple[list[dict[str, A
     return content, screenshot_b64
 
 
+def _prune_old_screenshots(messages: list[dict[str, Any]], keep: int) -> None:
+    """Sustituye in-place las imágenes viejas del historial por un placeholder.
+
+    Mantiene tal cual los `keep` screenshots más recientes y reemplaza el resto
+    con un bloque de texto. `keep <= 0` desactiva el pruning (se mandan todas
+    las imágenes al modelo). Reduce input tokens en tareas largas (cada
+    JPEG ~1000 tokens; tras 30 acciones sin pruning serían ~30k tokens por
+    turno solo en imágenes).
+    """
+    if keep <= 0:
+        return
+    # Recoge índices de imágenes en orden (msg_idx, content_idx)
+    image_locations: list[tuple[int, int]] = []
+    for mi, msg in enumerate(messages):
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for ci, blk in enumerate(content):
+            if isinstance(blk, dict) and blk.get("type") == "image":
+                image_locations.append((mi, ci))
+            elif isinstance(blk, dict) and blk.get("type") == "tool_result":
+                # tool_result.content puede ser una lista con imágenes dentro
+                inner = blk.get("content")
+                if isinstance(inner, list):
+                    for ii, sub in enumerate(inner):
+                        if isinstance(sub, dict) and sub.get("type") == "image":
+                            image_locations.append((mi, ci, ii))  # tipo más largo
+    # Las últimas `keep` se conservan.
+    if len(image_locations) <= keep:
+        return
+    to_prune = image_locations[: len(image_locations) - keep]
+    placeholder = {
+        "type": "text",
+        "text": "[screenshot anterior omitido para ahorrar contexto]",
+    }
+    for loc in to_prune:
+        if len(loc) == 2:
+            mi, ci = loc
+            messages[mi]["content"][ci] = placeholder
+        else:
+            mi, ci, ii = loc
+            inner = messages[mi]["content"][ci].get("content")
+            if isinstance(inner, list) and 0 <= ii < len(inner):
+                inner[ii] = placeholder
+
+
+def _build_cached_system() -> list[dict[str, Any]]:
+    """System prompt con cache_control para que la API lo cachee entre turnos."""
+    return [{
+        "type": "text",
+        "text": SYSTEM_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }]
+
+
+def _build_cached_tools() -> list[dict[str, Any]]:
+    """Tools list marcando la última con cache_control. Cachea TODA la lista."""
+    if not TOOLS:
+        return TOOLS
+    cached = [dict(t) for t in TOOLS]
+    cached[-1] = {**cached[-1], "cache_control": {"type": "ephemeral"}}
+    return cached
+
+
+_CACHED_SYSTEM = _build_cached_system()
+_CACHED_TOOLS = _build_cached_tools()
+
+
 def _stream_one_turn(
     client: anthropic.Anthropic,
     messages: list[dict[str, Any]],
     on_event: EventCallback,
 ) -> Any:
     """Hace un turno con streaming. Devuelve el final_message."""
+    # Limpiar imágenes viejas antes de mandar — reduce tokens y latencia.
+    _prune_old_screenshots(messages, keep=KEEP_RECENT_SCREENSHOTS)
+
     backoff = 2.0
     for attempt in range(5):
         try:
@@ -307,8 +384,8 @@ def _stream_one_turn(
             with client.messages.stream(
                 model=MODEL,
                 max_tokens=MAX_TOKENS,
-                system=SYSTEM_PROMPT,
-                tools=TOOLS,
+                system=_CACHED_SYSTEM,
+                tools=_CACHED_TOOLS,
                 messages=messages,
             ) as stream:
                 for ev in stream:

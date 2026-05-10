@@ -47,6 +47,7 @@ RUN pip3 install --break-system-packages --no-cache-dir -r /app/requirements.txt
     && rm -rf /root/.cache /tmp/* /var/tmp/*
 
 COPY agent /app/agent
+COPY docker/firefox-profile /app/firefox-profile
 COPY docker/start.sh /app/start.sh
 # Eliminar CR en caso de checkout en Windows con CRLF
 RUN sed -i 's/\r$//' /app/start.sh && chmod +x /app/start.sh
