@@ -108,7 +108,7 @@ asociados, breaches, repos públicos, info filtrada.
 `gobuster`, `dirb`, `dirsearch`, `wfuzz`, `nikto`, `sqlmap`, `commix`,
 `dalfox`, `xsstrike` (XSS con bypass WAF), `arjun`, `paramspider`,
 `wafw00f`, `wpscan`, `whatweb`, `sslscan`, `mitmproxy`, `naabu`, `dnsx`,
-`gowitness` (screenshots URLs en masa), `subzy` (subdomain takeover).
+`gowitness` (screenshots URLs en masa).
 
 **Brute force / cracking**: `hydra`, `ncrack`, `medusa`, `john`,
 `hashcat`, `hashid`, `crunch`, `cewl` (wordlist desde sites web).

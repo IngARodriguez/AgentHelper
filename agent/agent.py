@@ -104,7 +104,7 @@ Web testing:
 - sslscan — análisis TLS/SSL
 - mitmproxy — proxy de interceptación
 - gowitness — screenshot URLs en masa (recon visual rápido)
-- subzy — scanner de subdomain takeover (`subzy run --targets subs.txt`)
+- subdomain takeover: `nuclei -t /root/nuclei-templates/http/takeovers/ -l subs.txt`
 - naabu — port scanner Go rápido (alternativa a nmap para barridos grandes)
 - dnsx — DNS toolkit Go (resolve/brute/PTR/SRV)
 

@@ -291,25 +291,26 @@ RUN git clone --depth 1 https://github.com/RsaCtfTool/RsaCtfTool.git /opt/RsaCtf
     && chmod +x /usr/local/bin/rsactftool \
     && rm -rf /opt/RsaCtfTool/.git
 
-# ─── Más Go/Rust binarios: feroxbuster, gowitness, subzy, trufflehog ─────────
+# ─── Más Go/Rust binarios: feroxbuster, trufflehog, gowitness ────────────────
+# (subzy se descartó — su asset cambió formato; nuclei templates -tags takeover
+# hacen lo mismo). curl con -f hace que cualquier 404 falle el build con
+# mensaje claro en lugar de silenciosamente descargar HTML.
 ARG FEROX_VER=2.11.0
-ARG GOWITNESS_VER=3.0.5
-ARG SUBZY_VER=2.2.6
 ARG TRUFFLEHOG_VER=3.83.7
+ARG GOWITNESS_VER=3.0.5
 RUN set -eux; \
     workdir=$(mktemp -d); cd "$workdir"; \
     fetch_zip() { \
-        curl -sSL "$2" -o pkg.zip; \
+        curl -fsSL "$2" -o pkg.zip; \
         rm -rf extract && mkdir extract; \
         unzip -qo pkg.zip -d extract; \
-        # Algunos paquetes meten el binario en subdir o con sufijo
         if [ -f "extract/$1" ]; then mv "extract/$1" /usr/local/bin/; \
         else find extract -type f -name "$1*" -executable -exec mv {} /usr/local/bin/$1 \; ; fi; \
         chmod +x "/usr/local/bin/$1"; \
         rm -rf pkg.zip extract; \
     }; \
     fetch_tgz() { \
-        curl -sSL "$2" -o pkg.tgz; \
+        curl -fsSL "$2" -o pkg.tgz; \
         rm -rf extract && mkdir extract; \
         tar -xzf pkg.tgz -C extract; \
         if [ -f "extract/$1" ]; then mv "extract/$1" /usr/local/bin/; \
@@ -319,12 +320,10 @@ RUN set -eux; \
     }; \
     # feroxbuster — Rust, recursive content discovery
     fetch_zip feroxbuster "https://github.com/epi052/feroxbuster/releases/download/v${FEROX_VER}/x86_64-linux-feroxbuster.zip"; \
-    # subzy — subdomain takeover scanner
-    fetch_tgz subzy       "https://github.com/PentestPad/subzy/releases/download/v${SUBZY_VER}/subzy_${SUBZY_VER}_linux_amd64.tgz"; \
     # trufflehog — secret scanner agresivo (más completo que gitleaks)
     fetch_tgz trufflehog  "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VER}/trufflehog_${TRUFFLEHOG_VER}_linux_amd64.tar.gz"; \
-    # gowitness — screenshot URLs at scale (recon visual)
-    curl -sSL "https://github.com/sensepost/gowitness/releases/download/${GOWITNESS_VER}/gowitness-${GOWITNESS_VER}-linux-amd64" -o /usr/local/bin/gowitness; \
+    # gowitness — screenshot URLs at scale (recon visual). v3.x ship binario directo.
+    curl -fsSL "https://github.com/sensepost/gowitness/releases/download/${GOWITNESS_VER}/gowitness-${GOWITNESS_VER}-linux-amd64" -o /usr/local/bin/gowitness; \
     chmod +x /usr/local/bin/gowitness; \
     cd / && rm -rf "$workdir"
 
