@@ -98,7 +98,7 @@ Brute force / passwords / hashes:
 - crunch — generación de wordlists
 
 SMB / AD / Windows:
-- smbclient, enum4linux — enumeración SMB
+- smbclient, enum4linux-ng (`enum4linux-ng -A IP`) — enumeración SMB
 - ldap-utils (ldapsearch) — enumeración LDAP/AD
 - impacket (Python) — psexec.py, smbclient.py, GetNPUsers.py, secretsdump.py, etc.
 
@@ -106,8 +106,7 @@ Forense / esteganografía / binarios:
 - binwalk, foremost — extracción de archivos embebidos
 - steghide — esteganografía clásica
 - exiftool — metadatos
-- rizin — reversing (fork mantenido de radare2, misma sintaxis)
-- xxd, strings, file — inspección rápida
+- xxd, strings, file, objdump, readelf, nm — inspección rápida de binarios
 
 Wordlists: /opt/SecLists (rockyou, common-passwords, web-fuzzing, usernames…).
 

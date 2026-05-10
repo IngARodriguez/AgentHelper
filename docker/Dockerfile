@@ -41,14 +41,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gobuster dirb wfuzz nikto sqlmap whatweb \
     # Brute force / cracking de contraseñas y hashes
     hydra john hashcat crunch ncrack medusa \
-    # SMB / AD / Windows-side
-    smbclient samba-common-bin enum4linux ldap-utils \
+    # SMB / AD / Windows-side (enum4linux-ng via pip más abajo)
+    smbclient samba-common-bin ldap-utils \
     # SNMP / SSL / DNS extra
     snmp snmp-mibs-downloader \
     sslscan \
     dnsenum dnsrecon \
-    # Forense / esteganografía / binarios (rizin = fork mantenido de radare2)
-    binwalk steghide foremost libimage-exiftool-perl rizin \
+    # Forense / esteganografía / binarios. Para reversing básico tenemos
+    # xxd/strings/objdump/readelf via binutils (ya en build-essential).
+    binwalk steghide foremost libimage-exiftool-perl \
     # Web proxies / interceptación
     mitmproxy \
     # Misc útiles
@@ -126,6 +127,8 @@ RUN pip3 install --break-system-packages --no-cache-dir -r /app/requirements.txt
 
 # Librerías Python comunes para scripting de seguridad / CTF.
 # Una capa separada para no invalidar cache cuando solo cambia el código.
+# enum4linux-ng = rewrite Python de enum4linux (el Perl original fue removido
+# de Debian bookworm).
 RUN pip3 install --break-system-packages --no-cache-dir \
     impacket \
     pwntools \
@@ -137,6 +140,7 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     paramiko \
     pycryptodome \
     pyOpenSSL \
+    enum4linux-ng \
     && rm -rf /root/.cache /tmp/* /var/tmp/*
 
 COPY agent /app/agent

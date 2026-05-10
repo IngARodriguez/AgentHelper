@@ -65,11 +65,11 @@ sabe usar para tareas de CTF, pentesting autorizado y cursos de seguridad.
 **Brute force / cracking**: `hydra`, `ncrack`, `medusa`, `john`, `hashcat`,
 `crunch`.
 
-**SMB / AD / Windows**: `smbclient`, `enum4linux`, `ldap-utils`, `impacket`
+**SMB / AD / Windows**: `smbclient`, `enum4linux-ng`, `ldap-utils`, `impacket`
 (Python: `psexec.py`, `secretsdump.py`, `GetNPUsers.py`, …).
 
-**Forense / reversing / esteganografía**: `binwalk`, `foremost`, `steghide`,
-`exiftool`, `rizin`, `xxd`, `strings`.
+**Forense / esteganografía / binarios**: `binwalk`, `foremost`, `steghide`,
+`exiftool`, `xxd`, `strings`, `objdump`, `readelf`.
 
 **Exploit DB**: `searchsploit <termino>` busca en exploitdb local.
 
