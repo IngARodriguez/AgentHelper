@@ -69,7 +69,7 @@ sabe usar para tareas de CTF, pentesting autorizado y cursos de seguridad.
 (Python: `psexec.py`, `secretsdump.py`, `GetNPUsers.py`, …).
 
 **Forense / reversing / esteganografía**: `binwalk`, `foremost`, `steghide`,
-`exiftool`, `radare2`, `xxd`, `strings`.
+`exiftool`, `rizin`, `xxd`, `strings`.
 
 **Exploit DB**: `searchsploit <termino>` busca en exploitdb local.
 

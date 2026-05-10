@@ -106,7 +106,7 @@ Forense / esteganografía / binarios:
 - binwalk, foremost — extracción de archivos embebidos
 - steghide — esteganografía clásica
 - exiftool — metadatos
-- radare2 — reversing
+- rizin — reversing (fork mantenido de radare2, misma sintaxis)
 - xxd, strings, file — inspección rápida
 
 Wordlists: /opt/SecLists (rockyou, common-passwords, web-fuzzing, usernames…).

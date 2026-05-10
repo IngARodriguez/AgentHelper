@@ -21,11 +21,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git build-essential \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/*
 
+# Habilitar contrib + non-free para que apt vea nikto/enum4linux/snmp-mibs-downloader.
+# Soporta tanto el formato legacy sources.list como el nuevo deb822
+# /etc/apt/sources.list.d/debian.sources (Debian 12 lo usa).
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's/^Components: main$/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources; \
+    fi; \
+    if [ -f /etc/apt/sources.list ]; then \
+        sed -i 's/ main$/ main contrib non-free non-free-firmware/' /etc/apt/sources.list || true; \
+    fi
+
 # ─── Toolbox de seguridad / pentesting ───────────────────────────────────────
-# Instalado en una capa separada para que cambios al stack base no rebuilden
-# todo el toolbox. Cubre las categorías típicas de un curso de ethical hacking:
-# recon de red, scanning, web testing, brute force, SMB/AD, forense, crypto,
-# wireless. Solo herramientas en repos oficiales Debian.
+# Cubre recon de red, scanning, web testing, brute force, SMB/AD, forense.
+# Solo herramientas en repos oficiales Debian (main + contrib + non-free).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Recon / scanning de red
     nmap masscan arp-scan netcat-openbsd tcpdump tshark \
@@ -39,15 +47,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     snmp snmp-mibs-downloader \
     sslscan \
     dnsenum dnsrecon \
-    # Exploit DB (provee `searchsploit`)
-    exploitdb \
-    # Forense / esteganografía / binarios
-    binwalk steghide foremost libimage-exiftool-perl radare2 \
+    # Forense / esteganografía / binarios (rizin = fork mantenido de radare2)
+    binwalk steghide foremost libimage-exiftool-perl rizin \
     # Web proxies / interceptación
     mitmproxy \
     # Misc útiles
     proxychains4 tor stunnel4 socat openssl gnupg \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/*
+
+# Exploit-DB no está en repos Debian. Lo clonamos shallow y enlazamos
+# searchsploit en /usr/local/bin/.
+RUN git clone --depth 1 https://gitlab.com/exploit-database/exploitdb.git /opt/exploitdb \
+    && ln -sf /opt/exploitdb/searchsploit /usr/local/bin/searchsploit \
+    && rm -rf /opt/exploitdb/.git
 
 # Diccionarios SecLists (muy comunes en CTF / web fuzzing). Lo clonamos
 # shallow para mantener tamaño razonable. Ruta: /opt/SecLists.
