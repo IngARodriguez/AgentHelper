@@ -20,5 +20,6 @@ venv/
 
 # Claude / runtime
 .claude/
+CLAUDE.md
 *.log
 /tmp/

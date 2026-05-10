@@ -81,6 +81,24 @@ _clients: list[queue.Queue] = []
 _state_lock = threading.Lock()
 _state = {"busy": False, "task": None}
 
+# Control mid-run del agente: el thread del agente lee de aquí entre turnos.
+#   interrupt:  Event() → set para que termine al cerrar el turno actual.
+#   injections: Queue() de strings → se inyectan como user message al modelo.
+_control: dict[str, Any] = {
+    "interrupt": threading.Event(),
+    "injections": queue.Queue(maxsize=100),
+}
+
+
+def _reset_control() -> None:
+    """Limpia interrupt + injections. Se llama al iniciar una tarea nueva."""
+    _control["interrupt"].clear()
+    while not _control["injections"].empty():
+        try:
+            _control["injections"].get_nowait()
+        except queue.Empty:
+            break
+
 
 def _emit(event: dict[str, Any]) -> None:
     """Push a todos los clientes SSE conectados."""
@@ -330,7 +348,7 @@ INDEX_HTML = """<!DOCTYPE html>
     }
     #task:disabled { opacity: 0.45; }
 
-    #send {
+    #send, #stop {
       background: transparent;
       color: var(--green);
       border: 1px solid var(--green);
@@ -356,6 +374,59 @@ INDEX_HTML = """<!DOCTYPE html>
       border-color: var(--border);
       cursor: not-allowed;
       text-shadow: none;
+    }
+    /* INJECT mode (cuando busy): cambia a amber */
+    #send.inject {
+      color: var(--amber);
+      border-color: var(--amber);
+      text-shadow: 0 0 4px rgba(255,204,85,0.3);
+    }
+    #send.inject:hover:not(:disabled) {
+      background: var(--amber);
+      color: var(--bg);
+      box-shadow: 0 0 12px rgba(255,204,85,0.4);
+      text-shadow: none;
+    }
+    /* STOP button — solo visible durante busy */
+    #stop {
+      display: none;
+      color: var(--red);
+      border-color: var(--red);
+      text-shadow: 0 0 4px rgba(255,71,87,0.3);
+      padding: 0 14px;
+    }
+    #stop.visible { display: block; }
+    #stop:hover {
+      background: var(--red);
+      color: var(--bg);
+      box-shadow: 0 0 12px rgba(255,71,87,0.4);
+      text-shadow: none;
+    }
+    #stop.armed {
+      background: var(--red);
+      color: var(--bg);
+      animation: pulse-fast 0.6s steps(2) infinite;
+      pointer-events: none;
+    }
+    @keyframes pulse-fast { 50% { opacity: 0.6; } }
+
+    /* Inyección del usuario en el log */
+    #log .inject-block {
+      display: block;
+      background: #1a1505;
+      border-left: 2px solid var(--amber);
+      padding: 6px 10px;
+      margin: 6px 0;
+      color: var(--amber);
+      white-space: pre-wrap;
+    }
+    #log .inject-applied {
+      color: var(--amber);
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      display: block;
+      margin: 2px 0;
     }
 
     /* ─── noVNC iframe ─── */
@@ -396,6 +467,7 @@ INDEX_HTML = """<!DOCTYPE html>
     <div id="input-row">
       <textarea id="task" rows="1" placeholder="target / task..." autofocus></textarea>
       <button id="send">EXEC</button>
+      <button id="stop" title="Detener tarea actual al final del turno">STOP</button>
     </div>
   </div>
   <div class="panel">
@@ -412,9 +484,11 @@ INDEX_HTML = """<!DOCTYPE html>
     const cursor = document.getElementById('cursor');
     const taskInput = document.getElementById('task');
     const sendBtn = document.getElementById('send');
+    const stopBtn = document.getElementById('stop');
     const statusLabel = document.getElementById('status-label');
     const dot = document.getElementById('dot');
     const conn = document.getElementById('conn');
+    let isBusy = false;
 
     function appendNode(node) {
       // Insertar antes del cursor para que siempre quede al final
@@ -432,8 +506,17 @@ INDEX_HTML = """<!DOCTYPE html>
     }
 
     function setBusy(busy) {
-      sendBtn.disabled = busy;
-      taskInput.disabled = busy;
+      isBusy = busy;
+      // Input siempre habilitado: cuando busy → modo INJECT
+      taskInput.disabled = false;
+      sendBtn.disabled = false;
+      sendBtn.textContent = busy ? 'INJECT' : 'EXEC';
+      sendBtn.classList.toggle('inject', busy);
+      stopBtn.classList.toggle('visible', busy);
+      stopBtn.classList.remove('armed');
+      taskInput.placeholder = busy
+        ? 'inject instruction (will reach agent at next turn)…'
+        : 'target / task...';
       statusLabel.textContent = busy ? 'executing' : 'idle';
       dot.classList.toggle('busy', busy);
       if (!busy) taskInput.focus();
@@ -474,6 +557,13 @@ INDEX_HTML = """<!DOCTYPE html>
           setBusy(m.busy);
         } else if (m.type === 'task_started') {
           appendBlock('\\n>>> ' + m.task, 'user');
+        } else if (m.type === 'user_inject_queued') {
+          const div = document.createElement('div');
+          div.className = 'inject-block';
+          div.textContent = '>> [inject queued] ' + m.message;
+          appendNode(div);
+        } else if (m.type === 'user_inject_applied') {
+          appendBlock('   ↳ inject delivered to agent', 'inject-applied');
         } else if (m.type === 'helper_plan') {
           const div = document.createElement('div');
           div.className = 'helper-block';
@@ -550,11 +640,54 @@ INDEX_HTML = """<!DOCTYPE html>
         setBusy(false);
       }
     }
-    sendBtn.onclick = submitTask;
+
+    async function injectMessage() {
+      const message = taskInput.value.trim();
+      if (!message) return;
+      try {
+        const res = await fetch('/inject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        });
+        if (!res.ok) {
+          const txt = await res.text();
+          appendBlock('[inject err] ' + txt, 'err');
+          return;
+        }
+        taskInput.value = '';
+        taskInput.style.height = 'auto';
+      } catch (e) {
+        appendBlock('[inject err] ' + e.message, 'err');
+      }
+    }
+
+    async function stopTask() {
+      if (!isBusy) return;
+      stopBtn.classList.add('armed');
+      try {
+        const res = await fetch('/interrupt', { method: 'POST' });
+        if (!res.ok) {
+          appendBlock('[stop err] ' + await res.text(), 'err');
+          stopBtn.classList.remove('armed');
+        }
+      } catch (e) {
+        appendBlock('[stop err] ' + e.message, 'err');
+        stopBtn.classList.remove('armed');
+      }
+    }
+
+    function dispatchSubmit() {
+      if (isBusy) injectMessage();
+      else submitTask();
+    }
+
+    sendBtn.onclick = dispatchSubmit;
+    stopBtn.onclick = stopTask;
     taskInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        submitTask();
+        dispatchSubmit();
       }
     });
 
@@ -758,6 +891,42 @@ def healthz() -> dict[str, Any]:
         return {"ok": True, "busy": _state["busy"], "task": _state["task"]}
 
 
+class InjectBody(BaseModel):
+    message: str
+
+
+@app.post("/interrupt")
+def interrupt() -> dict[str, Any]:
+    """Marca la tarea actual para que termine limpiamente al final del turno."""
+    with _state_lock:
+        if not _state["busy"]:
+            return {"ok": False, "reason": "no hay tarea en curso"}
+    _control["interrupt"].set()
+    _emit({"type": "log", "message": "interrupción solicitada — terminando al final del turno"})
+    return {"ok": True}
+
+
+@app.post("/inject")
+def inject(body: InjectBody) -> dict[str, Any]:
+    """Encola un mensaje del usuario para inyectar entre turnos del agente.
+
+    Se inserta como mensaje user con prefijo claro de "USUARIO INTERRUMPE…"
+    para que el agente entienda que es input mid-task del operador.
+    """
+    msg = (body.message or "").strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="mensaje vacío")
+    with _state_lock:
+        if not _state["busy"]:
+            raise HTTPException(status_code=409, detail="no hay tarea en curso")
+    try:
+        _control["injections"].put_nowait(msg)
+    except queue.Full:
+        raise HTTPException(status_code=503, detail="cola de inyecciones llena")
+    _emit({"type": "user_inject_queued", "message": msg})
+    return {"ok": True}
+
+
 # ─── API pública (/api/*) ────────────────────────────────────────────────────
 
 def _start_task(task: str) -> None:
@@ -765,12 +934,13 @@ def _start_task(task: str) -> None:
 
     Misma lógica que /task — extraída para reutilizar en /api/task.
     """
+    _reset_control()
 
     def runner() -> None:
         _set_busy(True, task)
         _emit({"type": "task_started", "task": task})
         try:
-            run_agent(task, _emit)
+            run_agent(task, _emit, control=_control)
         except Exception as e:  # noqa: BLE001
             _emit({"type": "error", "message": f"runner crashed: {e!r}"})
         finally:
@@ -793,6 +963,8 @@ def api_root() -> dict[str, Any]:
             "GET  /api/status":       "estado actual {busy, task}",
             "GET  /api/events":       "stream SSE global (broadcast del dashboard)",
             "POST /api/shell":        "ejecuta un comando bash — body {command, timeout?}",
+            "POST /api/interrupt":    "detiene la tarea actual al final del turno en curso",
+            "POST /api/inject":       "inyecta un mensaje al agente entre turnos — body {message}",
         },
     }
 
@@ -847,6 +1019,21 @@ def api_shell(
     return shell_exec(body)
 
 
+@app.post("/api/interrupt")
+def api_interrupt(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    _check_api_auth(authorization)
+    return interrupt()
+
+
+@app.post("/api/inject")
+def api_inject(
+    body: InjectBody,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _check_api_auth(authorization)
+    return inject(body)
+
+
 @app.post("/api/task/stream")
 def api_task_stream(
     body: TaskBody,
@@ -890,11 +1077,13 @@ def api_task_stream(
         except queue.Full:
             pass  # cliente lento — dropeamos eventos pero el agente sigue
 
+    _reset_control()
+
     def runner() -> None:
         _set_busy(True, task)
         per_request_emit({"type": "task_started", "task": task})
         try:
-            run_agent(task, per_request_emit)
+            run_agent(task, per_request_emit, control=_control)
         except Exception as e:  # noqa: BLE001
             per_request_emit({"type": "error", "message": f"runner crashed: {e!r}"})
         finally:

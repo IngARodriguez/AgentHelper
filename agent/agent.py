@@ -986,8 +986,20 @@ def _stream_one_turn(
 
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
-def run_agent(task: str, on_event: EventCallback) -> None:
-    """Ejecuta una tarea de principio a fin. Bloquea hasta terminar o fallar."""
+def run_agent(
+    task: str,
+    on_event: EventCallback,
+    control: dict[str, Any] | None = None,
+) -> None:
+    """Ejecuta una tarea de principio a fin. Bloquea hasta terminar o fallar.
+
+    `control`: dict opcional con dos claves para control mid-run:
+        - "interrupt": threading.Event() que, cuando se setea, hace que el
+          agente termine al final del turno actual (limpio, sin romper la API).
+        - "injections": queue.Queue() de strings; entre turnos se drenan y se
+          insertan como mensajes del usuario en el contexto, así puedes
+          redirigir al agente sin reiniciar.
+    """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         on_event({"type": "error", "message": "falta ANTHROPIC_API_KEY"})
@@ -998,8 +1010,40 @@ def run_agent(task: str, on_event: EventCallback) -> None:
     initial_content, last_screenshot = _initial_user_content(task, plan=None)
     messages: list[dict[str, Any]] = [{"role": "user", "content": initial_content}]
 
+    def _drain_injections() -> list[dict[str, Any]]:
+        """Saca todas las inyecciones pendientes y las devuelve como bloques de texto."""
+        if not control or "injections" not in control:
+            return []
+        blocks: list[dict[str, Any]] = []
+        q = control["injections"]
+        while True:
+            try:
+                msg = q.get_nowait()
+            except Exception:
+                break
+            if not msg:
+                continue
+            blocks.append({
+                "type": "text",
+                "text": (
+                    "[USUARIO INTERRUMPE EN MITAD DE LA TAREA] "
+                    "Ignora o ajusta tu plan según esta nueva instrucción si es relevante:\n\n"
+                    + msg
+                ),
+            })
+            on_event({"type": "user_inject_applied", "message": msg})
+        return blocks
+
+    def _is_interrupted() -> bool:
+        return bool(control and control.get("interrupt") and control["interrupt"].is_set())
+
     try:
         for iteration in range(MAX_ITERATIONS):
+            # Antes de cada turno: chequea si el usuario pidió detener.
+            if _is_interrupted():
+                on_event({"type": "done", "message": "tarea detenida por el usuario"})
+                return
+
             final = _stream_one_turn(client, messages, on_event)
 
             assistant_blocks = [
@@ -1011,7 +1055,12 @@ def run_agent(task: str, on_event: EventCallback) -> None:
             on_event({"type": "turn_end", "stop_reason": final.stop_reason})
 
             if final.stop_reason == "end_turn":
-                # Terminó sin llamar tools — probablemente acabó o dio respuesta final.
+                # Si quedaron inyecciones pendientes, no terminamos: las insertamos
+                # como nuevo mensaje del usuario y continuamos el bucle.
+                injection_blocks = _drain_injections()
+                if injection_blocks:
+                    messages.append({"role": "user", "content": injection_blocks})
+                    continue
                 on_event({"type": "done", "message": "tarea finalizada (end_turn)"})
                 return
 
@@ -1071,7 +1120,10 @@ def run_agent(task: str, on_event: EventCallback) -> None:
                         "content": computer_tool.to_tool_result_content(result),
                         "is_error": bool(result.get("error")),
                     })
-                messages.append({"role": "user", "content": tool_results})
+                # Adjuntar inyecciones pendientes al mismo mensaje user — válido
+                # porque un mensaje user puede contener varios blocks heterogéneos.
+                user_content: list[dict[str, Any]] = list(tool_results) + _drain_injections()
+                messages.append({"role": "user", "content": user_content})
                 continue
 
             if final.stop_reason == "max_tokens":
