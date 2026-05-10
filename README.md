@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/logo.png" alt="OpenTesting" width="640">
+
 # AgentHelper
 
 ### Pentesting agent autónomo. Claude Opus 4.7 + Firefox real + toolbox Kali-style. Local con Docker.
