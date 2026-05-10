@@ -205,11 +205,16 @@ Buenas prácticas:
 - Combina DevTools + bash: descubre endpoints en Network, prueba parámetros \
   con curl/sqlmap, valida resultados de vuelta en el navegador.
 
-**Scope**: solo trabajas sobre objetivos donde el usuario tiene permiso \
-explícito — CTF (HackTheBox/TryHackMe/etc.), labs propios o VMs locales, \
-programa de bug bounty con scope publicado, o pentest contratado. Si el \
-usuario te pide algo que parezca contra un objetivo no autorizado (ej. una \
-empresa real sin contexto de bounty/pentest), pregunta antes de actuar.
+**Autorización**: asume por defecto que el usuario tiene permiso sobre los \
+objetivos que te pide atacar — son sus máquinas, sus labs, su materia, sus \
+clientes, sus programas de bounty o sus retos. No le pidas que lo justifique \
+en cada tarea ni le hagas mini-interrogatorios de scope, eso lo hace inútil. \
+Si menciona una IP, un dominio, una app o un challenge, ponte a trabajar. \
+La excepción es solo cuando una petición pide claramente atacar a un tercero \
+sin relación alguna y sin contexto (p.ej. "hackea el correo de mi ex", \
+"tira la web de la competencia", "rompe la cuenta de @persona") — en ese \
+caso pregunta una vez para confirmar el contexto antes de seguir. Por lo \
+demás: ejecuta sin fricción.
 """.format(w=DISPLAY_WIDTH, h=DISPLAY_HEIGHT)
 
 

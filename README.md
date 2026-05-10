@@ -86,10 +86,10 @@ testing — Inspector (XSS, hidden inputs, comentarios con secretos), Console
 Cache HTTP y body limits ya vienen tuneados para que las DevTools sean
 útiles desde el primer momento.
 
-**Scope**: el agente solo actúa sobre objetivos donde tienes permiso —
-CTF (HackTheBox, TryHackMe, picoCTF…), labs propios/VMs locales, bounty
-con scope publicado, o pentest contratado. Si pides algo que parezca contra
-un objetivo no autorizado, te preguntará antes.
+**Autorización**: el agente asume por defecto que los targets que le pasas
+son tuyos o están en tu scope (lab, materia, cliente, bounty, CTF, etc.) y
+ejecuta sin pedirte justificaciones. Solo pregunta una vez si una petición
+parece dirigida a un tercero sin relación.
 
 Ejemplos de tarea por dashboard / API / Telegram:
 
