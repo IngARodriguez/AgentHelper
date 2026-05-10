@@ -486,6 +486,36 @@ INDEX_HTML = """<!DOCTYPE html>
       display: block;
       margin: 2px 0;
     }
+    /* Refusal de Anthropic — bloque destacado con CTA */
+    #log .refusal-block {
+      display: block;
+      background: #1d0a0c;
+      border: 1px solid var(--red);
+      border-left: 3px solid var(--red);
+      padding: 10px 12px;
+      margin: 8px 0;
+      color: #ffb8c0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #log .refusal-block .title {
+      color: var(--red);
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      font-size: 11px;
+      display: block;
+      margin-bottom: 4px;
+    }
+    #log .refusal-block a {
+      color: var(--cyan);
+      text-decoration: underline;
+      word-break: break-all;
+    }
+    #log .refusal-block.final {
+      background: #2a0d10;
+      box-shadow: 0 0 12px rgba(255,71,87,0.2);
+    }
 
     /* ─── noVNC iframe ─── */
     iframe {
@@ -633,6 +663,38 @@ INDEX_HTML = """<!DOCTYPE html>
           hasResumable = true;
           updateResumeBtn();
           appendBlock('· session saved — RESUME enabled (' + m.messages_count + ' msgs)', 'sys');
+        } else if (m.type === 'refusal' || m.type === 'refusal_final') {
+          const div = document.createElement('div');
+          div.className = 'refusal-block' + (m.type === 'refusal_final' ? ' final' : '');
+          const title = document.createElement('span');
+          title.className = 'title';
+          title.textContent = m.type === 'refusal_final'
+            ? '⛔ anthropic safeguard — final (max retries)'
+            : '⚠ anthropic safeguard triggered — retry ' + m.retry + '/' + m.max_retries;
+          div.appendChild(title);
+          if (m.category) {
+            const cat = document.createElement('div');
+            cat.textContent = 'category: ' + m.category;
+            div.appendChild(cat);
+          }
+          if (m.type === 'refusal_final') {
+            const tip = document.createElement('div');
+            tip.style.marginTop = '6px';
+            tip.textContent = 'la sesión está guardada — reformula y pulsa RESUME, o solicita ajuste:';
+            div.appendChild(tip);
+          }
+          if (m.form_url) {
+            const link = document.createElement('a');
+            link.href = m.form_url;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.textContent = m.form_url;
+            const wrap = document.createElement('div');
+            wrap.style.marginTop = '4px';
+            wrap.appendChild(link);
+            div.appendChild(wrap);
+          }
+          appendNode(div);
         } else if (m.type === 'user_inject_queued') {
           const div = document.createElement('div');
           div.className = 'inject-block';
