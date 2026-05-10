@@ -113,198 +113,319 @@ INDEX_HTML = """<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>Agente de navegador</title>
+  <title>AGENTHELPER // pentest console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; height: 100%; }
+    :root {
+      --bg: #050807;
+      --bg-2: #0a0f0d;
+      --bg-3: #101715;
+      --border: #1a3a2a;
+      --border-soft: #142822;
+      --fg: #c8f0d4;
+      --green: #00ff9c;
+      --green-dim: #4ddb89;
+      --green-glow: rgba(0,255,156,0.18);
+      --cyan: #5cf3ff;
+      --amber: #ffcc55;
+      --red: #ff4757;
+      --magenta: #ff5cad;
+      --gray: #5e7b6e;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+    }
     body {
-      font-family: 'Segoe UI', -apple-system, sans-serif;
-      background: #0d0d10;
-      color: #e6e6e6;
+      font-family: var(--font-mono);
+      background: var(--bg);
+      color: var(--fg);
       display: grid;
-      grid-template-columns: minmax(360px, 1fr) 2fr;
+      grid-template-columns: minmax(420px, 1fr) 1.6fr;
       height: 100vh;
       overflow: hidden;
+      font-size: 13px;
+      line-height: 1.55;
+      /* Subtle scanline overlay */
+      background-image:
+        linear-gradient(rgba(0,255,156,0.015) 50%, transparent 50%);
+      background-size: 100% 3px;
     }
-    .panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid #2a2a32; }
+    .panel {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+      border-right: 1px solid var(--border);
+    }
     .panel:last-child { border-right: 0; }
+
+    /* ─── Header con título estilo terminal ─── */
     .panel header {
       padding: 10px 14px;
-      background: #15151a;
-      border-bottom: 1px solid #2a2a32;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.4px;
+      background: var(--bg-2);
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
       text-transform: uppercase;
-      color: #9aa0a6;
+      color: var(--green-dim);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
+      position: relative;
     }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #4caf50; }
-    .dot.busy { background: #f4b400; animation: pulse 1s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .panel header::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--green) 50%, transparent);
+      opacity: 0.4;
+    }
+    .panel header .label {
+      color: var(--green);
+      text-shadow: 0 0 6px var(--green-glow);
+    }
+    .panel header .meta {
+      margin-left: auto;
+      font-size: 10px;
+      color: var(--gray);
+      letter-spacing: 1px;
+    }
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+    .dot.busy {
+      background: var(--amber);
+      box-shadow: 0 0 8px var(--amber);
+      animation: pulse 0.9s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 
+    /* ─── Log central ─── */
     #log {
-      flex: 1; min-height: 0;
+      flex: 1;
+      min-height: 0;
       overflow-y: auto;
-      padding: 14px;
-      font-family: 'Consolas', 'Monaco', monospace;
-      font-size: 13px;
-      line-height: 1.5;
+      padding: 14px 14px 8px 14px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.55;
       white-space: pre-wrap;
       word-break: break-word;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
     }
-    #log .agent { color: #d8e3ff; }
-    #log .user  { color: #50fa7b; font-weight: 600; }
-    #log .action { color: #f1c40f; }
-    #log .err   { color: #ff6b6b; }
-    #log .sys   { color: #6c7086; font-style: italic; }
-    #log .turn  { color: #888; border-top: 1px dashed #2a2a32; padding-top: 8px; margin-top: 8px; display: block; }
-    #log .helper { color: #ff79c6; }
+    #log::-webkit-scrollbar { width: 6px; }
+    #log::-webkit-scrollbar-track { background: transparent; }
+    #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    #log .agent  { color: var(--fg); }
+    #log .user   { color: var(--green); font-weight: 700; text-shadow: 0 0 6px var(--green-glow); }
+    #log .action { color: var(--amber); }
+    #log .err    { color: var(--red); }
+    #log .sys    { color: var(--gray); font-style: italic; }
+    #log .turn   {
+      color: var(--gray);
+      border-top: 1px dashed var(--border);
+      padding-top: 6px;
+      margin-top: 8px;
+      display: block;
+      font-size: 10px;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
     #log .helper-block {
       display: block;
-      background: #1d1424;
-      border-left: 3px solid #ff79c6;
+      background: var(--bg-3);
+      border-left: 2px solid var(--magenta);
       padding: 6px 10px;
       margin: 6px 0;
-      color: #f5d4ec;
+      color: var(--magenta);
       white-space: pre-wrap;
     }
     #log .bash-block {
       display: block;
-      background: #050a05;
-      border-left: 3px solid #50fa7b;
+      background: #030504;
+      border: 1px solid var(--border-soft);
+      border-left: 2px solid var(--green);
       padding: 8px 10px;
       margin: 6px 0;
-      font-family: 'Consolas', 'Monaco', monospace;
+      font-family: var(--font-mono);
       font-size: 12px;
-      color: #c8d3e0;
+      color: var(--fg);
       white-space: pre-wrap;
       word-break: break-word;
+      box-shadow: 0 0 0 1px rgba(0,255,156,0.04);
     }
-    #log .bash-block .cmd { color: #50fa7b; font-weight: 600; }
-    #log .bash-block .stderr { color: #ff79c6; }
-    #log .bash-block .exit-ok { color: #6c7086; }
-    #log .bash-block .exit-fail { color: #ff5555; }
-    #log .bash-block .by-user { color: #4a90e2; font-size: 10px; text-transform: uppercase; }
-    #shell-row {
-      display: flex;
-      gap: 6px;
-      padding: 8px 10px;
-      background: #0a0a0a;
-      border-top: 1px solid #2a2a32;
-      font-family: 'Consolas', 'Monaco', monospace;
+    #log .bash-block .cmd { color: var(--green); font-weight: 700; }
+    #log .bash-block .cmd::before { content: '┌─ '; color: var(--gray); font-weight: 400; }
+    #log .bash-block .stderr { color: var(--magenta); }
+    #log .bash-block .exit-ok { color: var(--gray); font-size: 11px; }
+    #log .bash-block .exit-fail { color: var(--red); font-size: 11px; }
+    #log .bash-block .by-user {
+      color: var(--cyan);
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 4px;
     }
-    #shell-row .prompt { color: #50fa7b; font-weight: bold; padding: 8px 0 0 6px; }
-    #shell-input {
-      flex: 1;
-      background: #050a05;
-      color: #c8d3e0;
-      border: 1px solid #2a2a32;
-      border-radius: 4px;
-      padding: 8px 10px;
-      font-family: inherit;
-      font-size: 13px;
-      outline: none;
-    }
-    #shell-input:focus { border-color: #50fa7b; }
-    #shell-send {
-      background: #2a2a32;
-      color: #50fa7b;
-      border: 0;
-      border-radius: 4px;
-      padding: 0 12px;
-      font-family: inherit;
-      cursor: pointer;
-    }
-    #shell-send:hover { background: #3a3a42; }
 
+    /* ─── Status bar ─── */
+    #status-bar {
+      padding: 5px 14px;
+      font-size: 10px;
+      background: var(--bg-2);
+      border-top: 1px solid var(--border);
+      color: var(--gray);
+      display: flex;
+      justify-content: space-between;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    #status-bar #conn.live { color: var(--green); }
+    #status-bar #conn.reconnecting { color: var(--amber); }
+
+    /* ─── Input ─── */
     #input-row {
       display: flex;
-      gap: 6px;
-      padding: 10px;
-      background: #15151a;
-      border-top: 1px solid #2a2a32;
+      gap: 0;
+      padding: 8px;
+      background: var(--bg-2);
+      border-top: 1px solid var(--border);
+      position: relative;
+    }
+    #input-row::before {
+      content: '▶';
+      position: absolute;
+      left: 18px; top: 16px;
+      color: var(--green);
+      font-size: 11px;
+      pointer-events: none;
+      text-shadow: 0 0 6px var(--green-glow);
     }
     #task {
       flex: 1;
-      background: #0a0a0c;
-      color: #fff;
-      border: 1px solid #2a2a32;
-      border-radius: 6px;
-      padding: 10px 12px;
-      font-family: inherit;
-      font-size: 14px;
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 0;
+      padding: 10px 12px 10px 32px;
+      font-family: var(--font-mono);
+      font-size: 13px;
       outline: none;
       resize: none;
-      min-height: 40px;
-      max-height: 120px;
+      min-height: 42px;
+      max-height: 140px;
+      caret-color: var(--green);
     }
-    #task:focus { border-color: #4a90e2; }
+    #task:focus {
+      border-color: var(--green);
+      box-shadow: 0 0 0 1px var(--green), 0 0 12px var(--green-glow);
+    }
+    #task:disabled { opacity: 0.45; }
+
     #send {
-      background: #4a90e2;
-      color: white;
-      border: 0;
-      border-radius: 6px;
+      background: transparent;
+      color: var(--green);
+      border: 1px solid var(--green);
+      border-left: 0;
+      border-radius: 0;
       padding: 0 18px;
-      font-weight: 600;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 2px;
       cursor: pointer;
-      transition: background 0.15s;
+      transition: all 0.12s;
+      text-shadow: 0 0 4px var(--green-glow);
     }
-    #send:hover:not(:disabled) { background: #3a7bc8; }
-    #send:disabled { background: #2a2a32; color: #666; cursor: not-allowed; }
-
-    iframe { flex: 1; border: 0; width: 100%; background: #000; }
-
-    #status-bar {
-      padding: 6px 14px;
-      font-size: 11px;
-      background: #15151a;
-      border-top: 1px solid #2a2a32;
-      color: #6c7086;
-      display: flex;
-      justify-content: space-between;
+    #send:hover:not(:disabled) {
+      background: var(--green);
+      color: var(--bg);
+      box-shadow: 0 0 12px var(--green-glow);
+      text-shadow: none;
     }
+    #send:disabled {
+      color: var(--gray);
+      border-color: var(--border);
+      cursor: not-allowed;
+      text-shadow: none;
+    }
+
+    /* ─── noVNC iframe ─── */
+    iframe {
+      flex: 1;
+      border: 0;
+      width: 100%;
+      background: #000;
+    }
+
+    /* ─── Cursor parpadeante decorativo en el log ─── */
+    #cursor {
+      display: inline-block;
+      width: 8px;
+      height: 14px;
+      background: var(--green);
+      vertical-align: text-bottom;
+      animation: blink 1s steps(2) infinite;
+      box-shadow: 0 0 6px var(--green-glow);
+      margin-left: 2px;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
   </style>
 </head>
 <body>
   <div class="panel">
-    <header><span class="dot" id="dot"></span> <span id="status-label">listo</span></header>
-    <div id="log"></div>
+    <header>
+      <span class="dot" id="dot"></span>
+      <span class="label">[ AGENTHELPER ]</span>
+      <span id="status-label">idle</span>
+      <span class="meta" id="header-meta">opus-4.7 // session live</span>
+    </header>
+    <div id="log"><span id="cursor"></span></div>
     <div id="status-bar">
-      <span id="hint">escribe una tarea y dale Enter</span>
-      <span id="conn">conectando…</span>
+      <span id="hint">enter task // shift+enter for newline</span>
+      <span id="conn" class="reconnecting">linking…</span>
     </div>
     <div id="input-row">
-      <textarea id="task" rows="1" placeholder="Ej: Busca el precio actual de Bitcoin en USD" autofocus></textarea>
-      <button id="send">▶ enviar</button>
-    </div>
-    <div id="shell-row">
-      <span class="prompt">$</span>
-      <input id="shell-input" placeholder="comando bash (ej: ls /app, df -h, curl ifconfig.me)" />
-      <button id="shell-send">run</button>
+      <textarea id="task" rows="1" placeholder="target / task..." autofocus></textarea>
+      <button id="send">EXEC</button>
     </div>
   </div>
   <div class="panel">
-    <header><span class="dot"></span> pantalla del navegador (noVNC)</header>
+    <header>
+      <span class="dot"></span>
+      <span class="label">[ TARGET DISPLAY ]</span>
+      <span class="meta">novnc :: x11vnc → xvfb :1</span>
+    </header>
     <iframe src="/vnc/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=websockify&quality=8&compression=2&show_dot=0" id="vnc"></iframe>
   </div>
 
   <script>
     const log = document.getElementById('log');
+    const cursor = document.getElementById('cursor');
     const taskInput = document.getElementById('task');
     const sendBtn = document.getElementById('send');
     const statusLabel = document.getElementById('status-label');
     const dot = document.getElementById('dot');
     const conn = document.getElementById('conn');
 
+    function appendNode(node) {
+      // Insertar antes del cursor para que siempre quede al final
+      log.insertBefore(node, cursor);
+      log.scrollTop = log.scrollHeight;
+    }
     function append(text, cls) {
       const span = document.createElement('span');
       if (cls) span.className = cls;
       span.textContent = text;
-      log.appendChild(span);
-      log.scrollTop = log.scrollHeight;
+      appendNode(span);
     }
     function appendBlock(text, cls) {
       append(text + '\\n', cls);
@@ -313,7 +434,7 @@ INDEX_HTML = """<!DOCTYPE html>
     function setBusy(busy) {
       sendBtn.disabled = busy;
       taskInput.disabled = busy;
-      statusLabel.textContent = busy ? 'ejecutando…' : 'listo';
+      statusLabel.textContent = busy ? 'executing' : 'idle';
       dot.classList.toggle('busy', busy);
       if (!busy) taskInput.focus();
     }
@@ -321,9 +442,13 @@ INDEX_HTML = """<!DOCTYPE html>
     let evt = null;
     function connectStream() {
       evt = new EventSource('/events');
-      evt.onopen = () => { conn.textContent = 'conectado'; };
+      evt.onopen = () => {
+        conn.textContent = 'linked';
+        conn.className = 'live';
+      };
       evt.onerror = () => {
-        conn.textContent = 'reconectando…';
+        conn.textContent = 'reconnecting…';
+        conn.className = 'reconnecting';
         evt.close();
         setTimeout(connectStream, 1500);
       };
@@ -336,13 +461,12 @@ INDEX_HTML = """<!DOCTYPE html>
         } else if (m.type === 'tool_result_error') {
           appendBlock('✗ ' + m.message, 'err');
         } else if (m.type === 'error') {
-          appendBlock('[error] ' + m.message, 'err');
+          appendBlock('[err] ' + m.message, 'err');
           setBusy(false);
         } else if (m.type === 'log') {
           appendBlock('· ' + m.message, 'sys');
         } else if (m.type === 'turn_end') {
-          // separador entre turnos
-          appendBlock('— turno (' + m.stop_reason + ') —', 'turn');
+          appendBlock('── turn end :: ' + m.stop_reason + ' ──', 'turn');
         } else if (m.type === 'done') {
           appendBlock('✓ ' + m.message, 'sys');
           setBusy(false);
@@ -353,15 +477,13 @@ INDEX_HTML = """<!DOCTYPE html>
         } else if (m.type === 'helper_plan') {
           const div = document.createElement('div');
           div.className = 'helper-block';
-          div.textContent = '🧠 Plan del ayudante:\\n' + m.plan;
-          log.appendChild(div);
-          log.scrollTop = log.scrollHeight;
+          div.textContent = '[plan]\\n' + m.plan;
+          appendNode(div);
         } else if (m.type === 'helper_answer') {
           const div = document.createElement('div');
           div.className = 'helper-block';
-          div.textContent = '🧠 Consulta: ' + m.question + '\\n→ ' + m.answer;
-          log.appendChild(div);
-          log.scrollTop = log.scrollHeight;
+          div.textContent = '[?] ' + m.question + '\\n→ ' + m.answer;
+          appendNode(div);
         } else if (m.type === 'bash_output') {
           const div = document.createElement('div');
           div.className = 'bash-block';
@@ -369,12 +491,12 @@ INDEX_HTML = """<!DOCTYPE html>
           if (m.from_user) {
             const tag = document.createElement('div');
             tag.className = 'by-user';
-            tag.textContent = '— ejecutado por ti —';
+            tag.textContent = '── manual ──';
             div.appendChild(tag);
           }
           const cmd = document.createElement('div');
           cmd.className = 'cmd';
-          cmd.textContent = '$ ' + m.command;
+          cmd.textContent = m.command;
           div.appendChild(cmd);
 
           if (m.stdout) {
@@ -391,16 +513,15 @@ INDEX_HTML = """<!DOCTYPE html>
           if (m.error) {
             const er = document.createElement('div');
             er.className = 'exit-fail';
-            er.textContent = '⚠ ' + m.error;
+            er.textContent = '└─ ✗ ' + m.error;
             div.appendChild(er);
           } else {
             const e = document.createElement('div');
             e.className = m.exit_code === 0 ? 'exit-ok' : 'exit-fail';
-            e.textContent = '[exit ' + m.exit_code + ']';
+            e.textContent = '└─ exit ' + m.exit_code;
             div.appendChild(e);
           }
-          log.appendChild(div);
-          log.scrollTop = log.scrollHeight;
+          appendNode(div);
         }
       };
     }
@@ -418,13 +539,14 @@ INDEX_HTML = """<!DOCTYPE html>
         });
         if (!res.ok) {
           const txt = await res.text();
-          appendBlock('[error] ' + txt, 'err');
+          appendBlock('[err] ' + txt, 'err');
           setBusy(false);
           return;
         }
         taskInput.value = '';
+        taskInput.style.height = 'auto';
       } catch (e) {
-        appendBlock('[error] ' + e.message, 'err');
+        appendBlock('[err] ' + e.message, 'err');
         setBusy(false);
       }
     }
@@ -439,54 +561,7 @@ INDEX_HTML = """<!DOCTYPE html>
     // Auto-resize del textarea
     taskInput.addEventListener('input', () => {
       taskInput.style.height = 'auto';
-      taskInput.style.height = Math.min(120, taskInput.scrollHeight) + 'px';
-    });
-
-    // Terminal — el usuario también puede ejecutar comandos
-    const shellInput = document.getElementById('shell-input');
-    const shellSend = document.getElementById('shell-send');
-    const shellHistory = [];
-    let shellHistIdx = -1;
-
-    async function runShell() {
-      const cmd = shellInput.value.trim();
-      if (!cmd) return;
-      shellHistory.push(cmd);
-      shellHistIdx = shellHistory.length;
-      shellInput.value = '';
-      shellSend.disabled = true;
-      try {
-        const res = await fetch('/shell', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ command: cmd, timeout: 30 })
-        });
-        if (!res.ok) {
-          appendBlock('[shell error] ' + await res.text(), 'err');
-        }
-        // El resultado viene también por SSE (broadcast), no hace falta pintarlo aquí
-      } catch (e) {
-        appendBlock('[shell error] ' + e.message, 'err');
-      } finally {
-        shellSend.disabled = false;
-        shellInput.focus();
-      }
-    }
-    shellSend.onclick = runShell;
-    shellInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); runShell(); }
-      else if (e.key === 'ArrowUp' && shellHistIdx > 0) {
-        shellHistIdx--;
-        shellInput.value = shellHistory[shellHistIdx];
-      } else if (e.key === 'ArrowDown') {
-        if (shellHistIdx < shellHistory.length - 1) {
-          shellHistIdx++;
-          shellInput.value = shellHistory[shellHistIdx];
-        } else {
-          shellHistIdx = shellHistory.length;
-          shellInput.value = '';
-        }
-      }
+      taskInput.style.height = Math.min(140, taskInput.scrollHeight) + 'px';
     });
   </script>
 </body>
