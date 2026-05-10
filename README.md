@@ -180,19 +180,26 @@ reinventar payloads cada vez. Cubre:
 - **Iteration tactics**: qué probar cuando nmap/gobuster/sqlmap/XSS/hydra
   fallan (vectores alternativos)
 
-## Control mid-run (STOP / INJECT)
+## Control mid-run (STOP / INJECT / RESUME)
 
-Cuando el agente está ejecutando una tarea, en el panel izquierdo:
+Tres controles en el panel izquierdo para no perder contexto cuando algo
+no va bien:
 
-- **`[ EXEC ]`** se transforma en **`[ INJECT ]`** (amber). Escribes una
-  instrucción y pulsas Enter → se entrega al agente entre turnos como
-  mensaje del usuario con prefijo `[USUARIO INTERRUMPE…]`. El agente
-  reacciona en el siguiente paso. Útil para:
-  - corregir un target (*"el IP real es .42 no .41"*)
+- **`[ INJECT ]`** (amber, sustituye a EXEC durante busy) — manda una
+  instrucción al agente entre turnos. Llega como mensaje del usuario con
+  prefijo `[USUARIO INTERRUMPE…]`. Útil para:
+  - corregir target (*"el IP real es .42 no .41"*)
   - cambiar de táctica (*"olvida ese path, prueba sqlmap"*)
   - añadir objetivo (*"si encuentras la flag, también dump /etc/passwd"*)
-- **`[ STOP ]`** (rojo, solo visible durante busy) → cancela limpiamente
-  al final del turno actual (no rompe la API call en curso).
+- **`[ STOP ]`** (rojo, solo durante busy) — cancela limpiamente al final
+  del turno actual (sin romper la API call en curso).
+- **`[ RESUME ]`** (cyan, solo visible cuando hay sesión guardada) —
+  reanuda la última sesión. Click sin texto = continúa tal cual. Click
+  con texto en el input = reanuda añadiendo esa instrucción + screenshot
+  fresco. Útil cuando paraste, hubo un error o un refusal.
+
+La sesión sobrevive a refresh del dashboard (la UI consulta `/session` al
+cargar) pero NO sobrevive a `docker compose down`.
 
 Por API:
 
@@ -202,7 +209,37 @@ curl -X POST http://localhost:8000/inject \
   -d '{"message":"prueba con dirsearch en /admin"}'
 
 curl -X POST http://localhost:8000/interrupt
+
+# Reanudar la última sesión con instrucción nueva
+curl -X POST http://localhost:8000/resume \
+  -H "Content-Type: application/json" \
+  -d '{"task":"olvida nuclei, profundiza en Firebase manualmente"}'
+
+# Ver si hay sesión resumable
+curl http://localhost:8000/session
 ```
+
+## Cuando Anthropic activa cyber-safeguards
+
+El modelo Claude tiene safeguards de "cyber" que a veces disparan refusals
+incluso con uso autorizado. El agente los maneja así:
+
+1. Lo loguea claramente en la UI (bloque rojo con la categoría y el URL
+   del Cyber Verification Program de Anthropic).
+2. Reintenta automáticamente hasta 2 veces inyectando un nudge que pide
+   al modelo descomponer la acción en pasos más pequeños y específicos al
+   target real.
+3. Si tras 2 reintentos sigue bloqueando, guarda la sesión, surfacea el
+   URL del formulario y queda lista para `RESUME`.
+
+Si chocas a menudo, la solución oficial es rellenar el [Cyber Verification
+Program](https://claude.com/form/cyber-use-case) — Anthropic ajusta los
+límites de tu cuenta para casos legítimos (académico, pentest, bounty).
+La URL exacta sale en el refusal cuando ocurre.
+
+Para reducir la frecuencia, **sé específico** en los prompts:
+- ✗ *"haz pentest completo del banco X"*
+- ✓ *"sobre el form de login en https://lab.htb/login, prueba SQLi en el campo username con union-based"*
 
 ## DevTools de Firefox
 
@@ -256,6 +293,8 @@ Comandos: `/start`, `/myid`, `/status`. Una tarea concurrente.
 - `POST /shell` — `{"command": "...", "timeout": 30}`
 - `POST /inject` — `{"message": "..."}` (instrucción mid-task al agente)
 - `POST /interrupt` — detener tarea actual al cierre del turno
+- `POST /resume` — `{"task": "..."}` (vacío = continuar tal cual)
+- `GET /session` — `{resumable, messages_count, ended_at, end_reason}`
 - `GET /events` — SSE
 - `GET /healthz`
 
@@ -268,6 +307,8 @@ CORS abierto. Auth Bearer opcional vía `API_TOKEN`.
 - `POST /api/task/stream` — encola y stremea texto del agente en vivo
 - `POST /api/inject` — inyecta mensaje mid-task
 - `POST /api/interrupt` — para la tarea actual
+- `POST /api/resume` — reanuda última sesión
+- `GET /api/session` — info de sesión guardada
 - `GET /api/status` — `{busy, task}`
 - `GET /api/events` — SSE global
 - `POST /api/shell` — ejecuta bash
