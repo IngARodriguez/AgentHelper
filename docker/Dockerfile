@@ -54,6 +54,55 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN git clone --depth 1 https://github.com/danielmiessler/SecLists.git /opt/SecLists \
     && rm -rf /opt/SecLists/.git
 
+# ─── Toolbox OSINT ───────────────────────────────────────────────────────────
+# theHarvester (apt) recolecta emails, subdominios, IPs e info de fuentes
+# públicas. El resto (subfinder/httpx/nuclei/etc.) son binarios Go pre-built
+# que descargamos de GitHub Releases — más rápidos y portables que apt.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    theharvester \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/*
+
+# Python OSINT
+RUN pip3 install --break-system-packages --no-cache-dir \
+    sherlock-project \
+    holehe \
+    socialscan \
+    shodan \
+    censys \
+    waybackpy \
+    && rm -rf /root/.cache /tmp/* /var/tmp/*
+
+# Go binaries (proyectos de ProjectDiscovery + tomnomnom + gitleaks).
+# Versiones pinneadas para builds reproducibles. Si quieres actualizar,
+# busca la última release en cada repo.
+ARG SUBFINDER_VER=2.6.7
+ARG HTTPX_VER=1.6.10
+ARG NUCLEI_VER=3.3.10
+ARG GITLEAKS_VER=8.21.2
+ARG GAU_VER=2.2.4
+RUN set -eux; \
+    cd /tmp; \
+    curl -sSL "https://github.com/projectdiscovery/subfinder/releases/download/v${SUBFINDER_VER}/subfinder_${SUBFINDER_VER}_linux_amd64.zip" -o subfinder.zip; \
+    unzip -q subfinder.zip && mv subfinder /usr/local/bin/ && rm subfinder.zip; \
+    curl -sSL "https://github.com/projectdiscovery/httpx/releases/download/v${HTTPX_VER}/httpx_${HTTPX_VER}_linux_amd64.zip" -o httpx.zip; \
+    unzip -q httpx.zip && mv httpx /usr/local/bin/ && rm httpx.zip; \
+    curl -sSL "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VER}/nuclei_${NUCLEI_VER}_linux_amd64.zip" -o nuclei.zip; \
+    unzip -q nuclei.zip && mv nuclei /usr/local/bin/ && rm nuclei.zip; \
+    curl -sSL "https://github.com/tomnomnom/assetfinder/releases/download/v0.1.1/assetfinder-linux-amd64-0.1.1.tgz" -o assetfinder.tgz; \
+    tar -xzf assetfinder.tgz && mv assetfinder /usr/local/bin/ && rm assetfinder.tgz; \
+    curl -sSL "https://github.com/tomnomnom/waybackurls/releases/download/v0.1.0/waybackurls-linux-amd64-0.1.0.tgz" -o wayback.tgz; \
+    tar -xzf wayback.tgz && mv waybackurls /usr/local/bin/ && rm wayback.tgz; \
+    curl -sSL "https://github.com/lc/gau/releases/download/v${GAU_VER}/gau_${GAU_VER}_linux_amd64.tar.gz" -o gau.tgz; \
+    tar -xzf gau.tgz gau && mv gau /usr/local/bin/ && rm gau.tgz; \
+    curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER}_linux_x64.tar.gz" -o gitleaks.tgz; \
+    tar -xzf gitleaks.tgz gitleaks && mv gitleaks /usr/local/bin/ && rm gitleaks.tgz; \
+    chmod +x /usr/local/bin/subfinder /usr/local/bin/httpx /usr/local/bin/nuclei \
+             /usr/local/bin/assetfinder /usr/local/bin/waybackurls /usr/local/bin/gau \
+             /usr/local/bin/gitleaks
+
+# Pre-actualizar templates de nuclei (~50MB) — primer scan no espera la descarga
+RUN nuclei -update-templates -silent || true
+
 # Symlink novnc landing para que /vnc/ funcione
 RUN ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
 

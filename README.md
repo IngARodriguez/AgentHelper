@@ -78,6 +78,16 @@ sabe usar para tareas de CTF, pentesting autorizado y cursos de seguridad.
 
 **Wordlists**: `/opt/SecLists` (rockyou, web-fuzzing, usernames, etc.).
 
+**OSINT (recon pasivo)**: `subfinder`, `assetfinder`, `httpx`, `nuclei`,
+`theHarvester`, `gau`, `waybackurls`, `gitleaks`, `sherlock`, `holehe`,
+`socialscan`, `shodan` CLI, `censys` CLI, `exiftool`, plus templates de
+`nuclei` precargados. El agente también usa Google/Yandex/Wayback Machine
+vía Firefox para dorking, reverse image, archivo histórico.
+
+API keys opcionales (en `.env`): `SHODAN_API_KEY`, `CENSYS_API_ID/SECRET`,
+`HIBP_API_KEY`, `GITHUB_TOKEN`, `VIRUSTOTAL_API_KEY`. Sin ellas el agente
+cae a métodos públicos sin key (crt.sh, internetdb.shodan.io, etc.).
+
 **DevTools de Firefox**: el agente sabe usar las DevTools (F12) para web
 testing — Inspector (XSS, hidden inputs, comentarios con secretos), Console
 (JS arbitrario, `fetch()` a endpoints, leer cookies/localStorage), Network
