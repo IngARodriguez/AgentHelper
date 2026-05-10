@@ -68,15 +68,11 @@ RUN git clone --depth 1 https://github.com/danielmiessler/SecLists.git /opt/SecL
     && rm -rf /opt/SecLists/.git
 
 # ─── Toolbox OSINT ───────────────────────────────────────────────────────────
-# theHarvester (apt) recolecta emails, subdominios, IPs e info de fuentes
-# públicas. El resto (subfinder/httpx/nuclei/etc.) son binarios Go pre-built
-# que descargamos de GitHub Releases — más rápidos y portables que apt.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    theharvester \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/*
-
-# Python OSINT
+# theHarvester ya no está empaquetado en Debian bookworm — lo instalamos vía
+# pip junto con el resto de OSINT Python. El resto (subfinder/httpx/nuclei/etc.)
+# son binarios Go pre-built que descargamos de GitHub Releases más abajo.
 RUN pip3 install --break-system-packages --no-cache-dir \
+    theHarvester \
     sherlock-project \
     holehe \
     socialscan \
