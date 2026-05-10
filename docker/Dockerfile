@@ -174,7 +174,6 @@ RUN gem install --no-document wpscan evil-winrm \
     && rm -rf /tmp/* /var/tmp/* /usr/lib/ruby/gems/*/cache
 
 # ─── Pip: AD pentesting + web exploitation + binary + forensics + cloud ──────
-# netexec  = swiss army de AD (rebrand de crackmapexec, soporta SMB/LDAP/MSSQL/WinRM/SSH)
 # bloodhound = ingestor Python para BloodHound (mapeo de ataque AD)
 # certipy-ad = explotación de AD CS (ESC1-ESC11 y derivados)
 # pypykatz = mimikatz puro Python (extracción credenciales offline)
@@ -187,7 +186,6 @@ RUN gem install --no-document wpscan evil-winrm \
 # volatility3 = análisis forense de memoria (RAM dumps)
 # awscli = AWS CLI (cloud pentesting)
 RUN pip3 install --break-system-packages --no-cache-dir \
-    netexec \
     bloodhound \
     certipy-ad \
     pypykatz \
@@ -199,6 +197,13 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     hashid \
     volatility3 \
     awscli \
+    && rm -rf /root/.cache /tmp/* /var/tmp/*
+
+# NetExec (rebrand de crackmapexec, swiss army de AD) — solo se instala
+# desde git según los docs oficiales. Capa propia para no invalidar la de
+# arriba si NetExec falla por alguna dep.
+RUN pip3 install --break-system-packages --no-cache-dir \
+    git+https://github.com/Pennyw0rth/NetExec.git \
     && rm -rf /root/.cache /tmp/* /var/tmp/*
 
 # ─── GEF: extensión moderna para gdb (CTF binary pwn) ────────────────────────
