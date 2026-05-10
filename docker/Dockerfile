@@ -132,8 +132,6 @@ RUN pip3 install --break-system-packages --no-cache-dir -r /app/requirements.txt
 
 # Librerías Python comunes para scripting de seguridad / CTF.
 # Una capa separada para no invalidar cache cuando solo cambia el código.
-# enum4linux-ng = rewrite Python de enum4linux (el Perl original fue removido
-# de Debian bookworm).
 RUN pip3 install --break-system-packages --no-cache-dir \
     impacket \
     pwntools \
@@ -145,8 +143,15 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     paramiko \
     pycryptodome \
     pyOpenSSL \
-    enum4linux-ng \
     && rm -rf /root/.cache /tmp/* /var/tmp/*
+
+# enum4linux-ng — rewrite Python del enum4linux clásico (el Perl original
+# fue removido de Debian bookworm). El paquete `enum4linux-ng` de PyPI es un
+# squatter, lo clonamos del repo oficial.
+RUN git clone --depth 1 https://github.com/cddmp/enum4linux-ng.git /opt/enum4linux-ng \
+    && ln -sf /opt/enum4linux-ng/enum4linux-ng.py /usr/local/bin/enum4linux-ng \
+    && chmod +x /opt/enum4linux-ng/enum4linux-ng.py \
+    && rm -rf /opt/enum4linux-ng/.git
 
 COPY agent /app/agent
 COPY docker/firefox-profile /app/firefox-profile
