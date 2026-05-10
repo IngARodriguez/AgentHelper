@@ -36,6 +36,17 @@ MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "100"))
 # Default 10: continuidad visual amplia sin saturar contexto en tareas largas.
 KEEP_RECENT_SCREENSHOTS = int(os.environ.get("KEEP_RECENT_SCREENSHOTS", "10"))
 
+# Auto-compactación del historial — evita que sesiones largas saturen el
+# contexto de la API (o del proxy ngrok, que cierra streams grandes sin
+# enviar eventos). Diseño: preserva TODO el texto del asistente (findings,
+# razonamiento) y solo adelgaza datos brutos viejos (outputs de bash,
+# inputs largos de tools, screenshots) que ya están "destilados" en los
+# textos posteriores. El narrative queda intacto, los KB se van.
+CONTEXT_TARGET_TOKENS = int(os.environ.get("CONTEXT_TARGET_TOKENS", "300000"))
+CONTEXT_KEEP_RECENT_TURNS = int(os.environ.get("CONTEXT_KEEP_RECENT_TURNS", "20"))
+CONTEXT_BASH_OUTPUT_TRIM = int(os.environ.get("CONTEXT_BASH_OUTPUT_TRIM", "1500"))
+CONTEXT_TOOL_INPUT_TRIM = int(os.environ.get("CONTEXT_TOOL_INPUT_TRIM", "400"))
+
 SYSTEM_PROMPT = """Eres un agente que controla un escritorio Linux con Firefox \
 abierto, dentro de un sandbox Docker.
 
@@ -1199,6 +1210,222 @@ def _prune_old_screenshots(messages: list[dict[str, Any]], keep: int) -> None:
                 inner[ii] = placeholder
 
 
+def _estimate_tokens(messages: list[dict[str, Any]]) -> int:
+    """Heurística rápida de tokens del historial. Aproxima:
+    - texto: len/4
+    - imagen: ~1500 tokens (JPEG q=90 a 1280x800)
+    - tool_use input: len(json)/4
+    - tool_result content (string o lista de bloques): igual que texto/imagen
+    No es exacto pero permite decidir si compactar; el coste real lo calcula
+    la API a posteriori.
+    """
+    import json as _json
+    total = 0
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, str):
+            total += len(content) // 4
+            continue
+        if not isinstance(content, list):
+            continue
+        for blk in content:
+            if not isinstance(blk, dict):
+                continue
+            t = blk.get("type")
+            if t == "text":
+                total += len(blk.get("text", "")) // 4
+            elif t == "image":
+                total += 1500
+            elif t == "tool_use":
+                try:
+                    total += len(_json.dumps(blk.get("input") or {})) // 4
+                except Exception:
+                    total += 50
+            elif t == "tool_result":
+                inner = blk.get("content")
+                if isinstance(inner, str):
+                    total += len(inner) // 4
+                elif isinstance(inner, list):
+                    for sub in inner:
+                        if not isinstance(sub, dict):
+                            continue
+                        st = sub.get("type")
+                        if st == "text":
+                            total += len(sub.get("text", "")) // 4
+                        elif st == "image":
+                            total += 1500
+    return total
+
+
+def _trim_old_tool_outputs(
+    messages: list[dict[str, Any]],
+    keep_recent: int,
+    max_chars: int,
+) -> int:
+    """Trunca outputs grandes en tool_results más viejos que los últimos
+    `keep_recent` mensajes. Preserva pairing tool_use↔tool_result (solo
+    sustituye el contenido interno, no quita bloques). Devuelve bytes
+    aproximados ahorrados.
+    """
+    if len(messages) <= keep_recent:
+        return 0
+    saved = 0
+    cutoff = len(messages) - keep_recent
+    for m in messages[:cutoff]:
+        content = m.get("content")
+        if not isinstance(content, list):
+            continue
+        for blk in content:
+            if not isinstance(blk, dict) or blk.get("type") != "tool_result":
+                continue
+            inner = blk.get("content")
+            if isinstance(inner, str):
+                if len(inner) > max_chars:
+                    saved += len(inner) - max_chars
+                    blk["content"] = (
+                        inner[: max_chars // 2]
+                        + f"\n…[output anterior truncado — {len(inner) - max_chars} chars omitidos]…\n"
+                        + inner[-(max_chars // 2):]
+                    )
+            elif isinstance(inner, list):
+                for i, sub in enumerate(inner):
+                    if not isinstance(sub, dict) or sub.get("type") != "text":
+                        continue
+                    txt = sub.get("text", "")
+                    if len(txt) > max_chars:
+                        saved += len(txt) - max_chars
+                        inner[i] = {
+                            "type": "text",
+                            "text": (
+                                txt[: max_chars // 2]
+                                + f"\n…[output anterior truncado — {len(txt) - max_chars} chars omitidos]…\n"
+                                + txt[-(max_chars // 2):]
+                            ),
+                        }
+    return saved
+
+
+def _trim_old_tool_inputs(
+    messages: list[dict[str, Any]],
+    keep_recent: int,
+    max_chars: int,
+) -> int:
+    """Trunca inputs string largos en tool_use viejos (ej: `command` de bash
+    con un payload masivo, `text` de type_text con un blob). Preserva la
+    estructura del bloque tool_use, solo recorta valores string > max_chars.
+    """
+    if len(messages) <= keep_recent:
+        return 0
+    saved = 0
+    cutoff = len(messages) - keep_recent
+    for m in messages[:cutoff]:
+        content = m.get("content")
+        if not isinstance(content, list):
+            continue
+        for blk in content:
+            if not isinstance(blk, dict) or blk.get("type") != "tool_use":
+                continue
+            inp = blk.get("input")
+            if not isinstance(inp, dict):
+                continue
+            for k, v in list(inp.items()):
+                if isinstance(v, str) and len(v) > max_chars:
+                    saved += len(v) - max_chars
+                    inp[k] = (
+                        v[: max_chars // 2]
+                        + f"…[+{len(v) - max_chars} chars omitidos]…"
+                        + v[-(max_chars // 2):]
+                    )
+    return saved
+
+
+def _compact_to_budget(
+    messages: list[dict[str, Any]],
+    target_tokens: int,
+    on_event: "EventCallback",
+    *,
+    aggressive: bool = False,
+) -> None:
+    """Compacta progresivamente hasta caber en target_tokens. Estrategias en
+    orden de menor a mayor pérdida de detalle:
+      1. Trim tool_results viejos a CONTEXT_BASH_OUTPUT_TRIM chars
+      2. Trim inputs string viejos de tool_use a CONTEXT_TOOL_INPUT_TRIM
+      3. Reducir screenshots recientes a 5 (vs default 10)
+      4. (aggressive) trim tool_results más fuerte (500 chars) y screenshots a 2
+    En ningún paso se eliminan bloques — solo se sustituye contenido pesado
+    por placeholders. Esto preserva pairing tool_use↔tool_result y mantiene
+    todo el texto del asistente (findings, razonamiento) intacto.
+    """
+    before = _estimate_tokens(messages)
+    if before <= target_tokens:
+        return
+
+    initial = before
+    steps: list[str] = []
+
+    # 1) outputs viejos
+    saved = _trim_old_tool_outputs(
+        messages, CONTEXT_KEEP_RECENT_TURNS, CONTEXT_BASH_OUTPUT_TRIM
+    )
+    if saved:
+        steps.append(f"outputs(-{saved // 4} tok)")
+
+    if _estimate_tokens(messages) <= target_tokens:
+        on_event({
+            "type": "log",
+            "message": (
+                f"contexto compactado: {initial} → {_estimate_tokens(messages)} "
+                f"tokens [{', '.join(steps)}]"
+            ),
+        })
+        return
+
+    # 2) inputs viejos
+    saved = _trim_old_tool_inputs(
+        messages, CONTEXT_KEEP_RECENT_TURNS, CONTEXT_TOOL_INPUT_TRIM
+    )
+    if saved:
+        steps.append(f"inputs(-{saved // 4} tok)")
+
+    if _estimate_tokens(messages) <= target_tokens:
+        on_event({
+            "type": "log",
+            "message": (
+                f"contexto compactado: {initial} → {_estimate_tokens(messages)} "
+                f"tokens [{', '.join(steps)}]"
+            ),
+        })
+        return
+
+    # 3) screenshots a 5
+    _prune_old_screenshots(messages, keep=5)
+    steps.append("screenshots(keep=5)")
+
+    if _estimate_tokens(messages) <= target_tokens or not aggressive:
+        on_event({
+            "type": "log",
+            "message": (
+                f"contexto compactado: {initial} → {_estimate_tokens(messages)} "
+                f"tokens [{', '.join(steps)}]"
+            ),
+        })
+        return
+
+    # 4) aggressive: trim más fuerte y screenshots a 2
+    _trim_old_tool_outputs(messages, CONTEXT_KEEP_RECENT_TURNS, 500)
+    _trim_old_tool_inputs(messages, CONTEXT_KEEP_RECENT_TURNS, 150)
+    _prune_old_screenshots(messages, keep=2)
+    steps.append("aggressive(outputs=500,inputs=150,shots=2)")
+
+    on_event({
+        "type": "log",
+        "message": (
+            f"contexto compactado: {initial} → {_estimate_tokens(messages)} "
+            f"tokens [{', '.join(steps)}]"
+        ),
+    })
+
+
 def _build_cached_system() -> list[dict[str, Any]]:
     """System prompt con cache_control para que la API lo cachee entre turnos."""
     return [{
@@ -1226,10 +1453,18 @@ def _stream_one_turn(
     messages: list[dict[str, Any]],
     on_event: EventCallback,
 ) -> Any:
-    """Hace un turno con streaming. Devuelve el final_message."""
-    # Limpiar imágenes viejas antes de mandar — reduce tokens y latencia.
-    _prune_old_screenshots(messages, keep=KEEP_RECENT_SCREENSHOTS)
+    """Hace un turno con streaming. Devuelve el final_message.
 
+    Antes de mandar:
+      - Prune de screenshots viejos (KEEP_RECENT_SCREENSHOTS).
+      - Compactación preventiva si el historial estimado > CONTEXT_TARGET_TOKENS.
+    Si el stream vuelve vacío (caso típico: proxy ngrok cerrando respuestas
+    grandes), se compacta aún más agresivo y se reintenta antes de raise.
+    """
+    _prune_old_screenshots(messages, keep=KEEP_RECENT_SCREENSHOTS)
+    _compact_to_budget(messages, CONTEXT_TARGET_TOKENS, on_event)
+
+    empty_stream_recoveries = 0
     backoff = 2.0
     for attempt in range(5):
         try:
@@ -1248,9 +1483,31 @@ def _stream_one_turn(
                         if delta.type == "text_delta":
                             on_event({"type": "text", "text": delta.text})
                 if event_count == 0:
+                    # Recovery: el proxy/API devolvió respuesta vacía. Probablemente
+                    # el contexto es demasiado pesado para el upstream. Compactamos
+                    # más fuerte y reintentamos hasta 2 veces antes de raise.
+                    if empty_stream_recoveries < 2:
+                        empty_stream_recoveries += 1
+                        # Cada recovery baja el target a 60% del previo.
+                        recovery_target = int(
+                            CONTEXT_TARGET_TOKENS * (0.6 ** empty_stream_recoveries)
+                        )
+                        on_event({
+                            "type": "log",
+                            "message": (
+                                f"stream vacío (recovery {empty_stream_recoveries}/2), "
+                                f"compactando a target {recovery_target} tok"
+                            ),
+                        })
+                        _compact_to_budget(
+                            messages, recovery_target, on_event, aggressive=True
+                        )
+                        time.sleep(1.0)
+                        continue
                     raise RuntimeError(
-                        "el stream cerró sin eventos. El proxy/API devolvió "
-                        "una respuesta vacía. Verifica /debug/simple-stream."
+                        "el stream cerró sin eventos tras 2 recoveries con "
+                        "compactación. Probable límite del proxy/API. Verifica "
+                        "/debug/simple-stream."
                     )
                 return stream.get_final_message()
         except anthropic.RateLimitError as e:
@@ -1301,6 +1558,69 @@ def _append_user_text_smart(
         messages.append({"role": "user", "content": blocks})
 
 
+def _sanitize_resumed_messages(
+    messages: list[dict[str, Any]],
+    on_event: "EventCallback",
+) -> None:
+    """Recupera sesiones cargadas que tengan estructura inválida para la API.
+
+    Casos manejados:
+    1) Último assistant contiene tool_use blocks que NO tienen tool_result en
+       el mensaje siguiente. La API rechaza este historial. Cerramos cada
+       tool_use con un tool_result sintético en un nuevo mensaje user.
+       (Caso típico: sesión guardada tras task_complete antes del fix.)
+    2) Después de (1), si el último mensaje sigue siendo assistant (caso raro:
+       assistant text-only sin tool_use), añadimos un nudge user para que la
+       API tenga algo a lo que responder.
+
+    Modifica messages in-place y emite eventos `log` con lo que reparó.
+    """
+    if not messages:
+        return
+
+    last = messages[-1]
+    if last.get("role") == "assistant":
+        content = last.get("content") or []
+        if not isinstance(content, list):
+            content = []
+        pending = [
+            b for b in content
+            if isinstance(b, dict) and b.get("type") == "tool_use"
+        ]
+        if pending:
+            tool_results: list[dict[str, Any]] = []
+            for tu in pending:
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tu.get("id"),
+                    "content": (
+                        f"[sesión reanudada — tool_use '{tu.get('name')}' "
+                        "cerrado sintéticamente por el saneador]"
+                    ),
+                })
+            messages.append({"role": "user", "content": tool_results})
+            on_event({
+                "type": "log",
+                "message": (
+                    f"saneador: cerrados {len(tool_results)} tool_use pendientes "
+                    f"del último assistant ({', '.join(tu.get('name') or '?' for tu in pending)})"
+                ),
+            })
+
+    # Tras posible cierre de tool_uses, si el último mensaje aún es assistant
+    # (assistant text-only sin tool_use que cerrar), la API no podrá responder
+    # — necesita un user al final. Añadimos nudge mínimo.
+    if messages and messages[-1].get("role") == "assistant":
+        messages.append({
+            "role": "user",
+            "content": "[reanudación] continúa o espera nueva instrucción del usuario.",
+        })
+        on_event({
+            "type": "log",
+            "message": "saneador: añadido nudge user para reanudar (historial terminaba en assistant)",
+        })
+
+
 def run_agent(
     task: str,
     on_event: EventCallback,
@@ -1331,6 +1651,13 @@ def run_agent(
     if prior_messages:
         messages = list(prior_messages)
         last_screenshot: str | None = None
+        # Saneador de sesión: si el último assistant tiene tool_use pendientes
+        # sin tool_result siguiente, los cerramos con tool_results sintéticos.
+        # Esto recupera sesiones guardadas antes del fix de task_complete (que
+        # dejaban un tool_use de task_complete sin cerrar), o cualquier otra
+        # sesión cuyo último assistant haya quedado a medio camino. Sin esto,
+        # la API recibe historial inválido al continuar → respuesta vacía.
+        _sanitize_resumed_messages(messages, on_event)
         # Si reanudamos con instrucción nueva, añadirla como user message + screenshot fresco
         if task and task.strip():
             shot = computer_tool.execute("screenshot")
@@ -1417,6 +1744,19 @@ def run_agent(
                     # task_complete: termina el bucle
                     if name == "task_complete":
                         summary = args.get("summary", "")
+                        # Cerramos el tool_use con un tool_result sintético antes
+                        # de salir. Sin esto, la sesión guardada queda con un
+                        # assistant terminando en tool_use pendiente → al hacer
+                        # RESUME, la API recibe una secuencia inválida y devuelve
+                        # respuesta vacía. Cerrar aquí garantiza historial válido.
+                        messages.append({
+                            "role": "user",
+                            "content": [{
+                                "type": "tool_result",
+                                "tool_use_id": blk.id,
+                                "content": "tarea cerrada con task_complete",
+                            }],
+                        })
                         on_event({"type": "action", "action": "task_complete", "input": {"summary": summary}})
                         on_event({"type": "done", "message": f"tarea completada: {summary}"})
                         return messages
