@@ -267,8 +267,9 @@ El modelo tiene safeguards de "cyber" que disparan refusals incluso con uso
 autorizado. El agente los maneja así:
 
 1. **Log claro en la UI** (bloque rojo con categoría + URL del Cyber Verification Program).
-2. **Reintenta hasta 2 veces** inyectando un nudge para descomponer la acción.
-3. **Si tras 2 reintentos sigue bloqueando**, guarda la sesión, surfaca el URL y
+2. **Reintenta hasta 3 veces** inyectando un nudge para descomponer la acción.
+3. **Si tras 3 reintentos sigue bloqueando**, guarda la sesión, surfaca las 3
+   vías reales (cambiar target / verification program / cambiar proveedor) y
    queda lista para `RESUME`.
 
 **Lo único que de verdad relaja los safeguards:**

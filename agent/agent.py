@@ -1306,7 +1306,7 @@ def run_agent(
         messages = [{"role": "user", "content": initial_content}]
 
     refusal_retries = 0
-    MAX_REFUSAL_RETRIES = 2
+    MAX_REFUSAL_RETRIES = 3
 
     def _drain_injections() -> list[dict[str, Any]]:
         """Saca todas las inyecciones pendientes y las devuelve como bloques de texto."""
@@ -1486,11 +1486,16 @@ def run_agent(
                     "type": "error",
                     "message": (
                         f"Anthropic activó safeguards de '{category}' tras "
-                        f"{MAX_REFUSAL_RETRIES} reintentos. La tarea queda guardada "
-                        "en sesión — puedes pulsar RESUME tras reformularla, o "
-                        "rellenar el Cyber Verification Program de Anthropic para "
-                        "ajustar tus límites: "
-                        + (form_url or "https://claude.com/form/cyber-use-case")
+                        f"{MAX_REFUSAL_RETRIES} reintentos. La sesión está "
+                        "guardada — pulsa RESUME tras decidir qué hacer:\n"
+                        "  • cambia el target a uno autorizado (lab, CTF, "
+                        "bounty con scope publicado)\n"
+                        "  • rellena el Cyber Verification Program para que "
+                        "Anthropic ajuste los límites de tu cuenta: "
+                        + (form_url or "https://claude.com/form/cyber-use-case") + "\n"
+                        "  • apunta ANTHROPIC_BASE_URL a otro proveedor "
+                        "(OpenRouter, Ollama local, otro proxy) que no aplique "
+                        "este clasificador"
                     ),
                 })
                 return messages
