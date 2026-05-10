@@ -258,19 +258,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/*
 
 # ─── Pip OSINT/web/AD adicionales ────────────────────────────────────────────
-# paramspider: extrae parámetros de wayback y otras fuentes
 # mitm6: spoofing IPv6 + WPAD para AD
 # ldapdomaindump: dump completo info LDAP (users, computers, GPO, ACLs)
 # bloodyAD: alternativa a bloodhound-python con ataques offensive built-in
 # whatwaf: detección de WAF
 # s3scanner: enum buckets S3 abiertos
 RUN pip3 install --break-system-packages --no-cache-dir \
-    paramspider \
     mitm6 \
     ldapdomaindump \
     bloodyAD \
     whatwaf \
     s3scanner \
+    && rm -rf /root/.cache /tmp/* /var/tmp/*
+
+# paramspider no está en PyPI con ese nombre — install desde git oficial.
+# Capa propia para que un fallo aquí no invalide la de arriba.
+RUN pip3 install --break-system-packages --no-cache-dir \
+    git+https://github.com/devanshbatham/ParamSpider.git \
     && rm -rf /root/.cache /tmp/* /var/tmp/*
 
 # ─── XSStrike: XSS scanner avanzado con bypass de WAF ────────────────────────
