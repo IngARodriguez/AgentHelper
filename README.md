@@ -2,9 +2,9 @@
 
 <img src="assets/logo.png" alt="OpenTesting" width="360">
 
-# AgentHelper
+# AgentHelper - OpenTesting
 
-#### Pentesting agent autónomo — Claude Opus 4.7 + Firefox real + toolbox Kali-style
+#### Red Team Autonomous Operator - Potenciado por Claude Opus 4.7
 
 `recon → enum → explot → privesc → lateral` &nbsp;·&nbsp; sin pedir permiso entre pasos &nbsp;·&nbsp; 100% local con Docker
 
