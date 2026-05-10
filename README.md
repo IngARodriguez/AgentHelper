@@ -54,8 +54,9 @@ Lo único obligatorio es `ANTHROPIC_API_KEY`. Resolución, calidad de
 screenshots, anti-crash de Firefox, prompt caching, todo viene
 preconfigurado.
 
-**Primer build**: 10-15 min (descarga ~2GB entre apt, pip, Go binaries y
-SecLists). Builds posteriores reutilizan caché.
+**Primer build**: 15-25 min (descarga ~3GB entre apt, pip, gem, Go/Rust
+binaries, SecLists, exploitdb, nuclei templates). Builds posteriores
+reutilizan caché.
 
 ## Cómo se comporta
 
@@ -76,6 +77,8 @@ El agente trabaja con mentalidad red teamer:
 - **Combina shell + navegador.** En tareas web mezcla CLI (curl, sqlmap,
   ffuf) con DevTools de Firefox (Network para editar requests, Console
   para JS, Storage para cookies, Inspector para DOM/XSS).
+- **Interrumpible.** Mientras trabaja puedes mandarle instrucciones nuevas
+  con INJECT (cambia de táctica al siguiente turno) o pararlo con STOP.
 
 Ejemplos de prompts:
 
@@ -101,25 +104,29 @@ asociados, breaches, repos públicos, info filtrada.
 **Recon de red**: `nmap`, `masscan`, `arp-scan`, `tcpdump`, `tshark`,
 `whois`, `dig`, `dnsenum`, `dnsrecon`, `traceroute`, `mtr`.
 
-**Web fuzzing / scanning**: `ffuf`, `katana`, `gobuster`, `dirb`, `dirsearch`,
-`wfuzz`, `nikto`, `sqlmap`, `commix`, `dalfox` (XSS), `arjun` (param
-discovery), `wpscan`, `whatweb`, `sslscan`, `mitmproxy`, `naabu`, `dnsx`.
+**Web fuzzing / scanning**: `ffuf`, `feroxbuster` (recursive), `katana`,
+`gobuster`, `dirb`, `dirsearch`, `wfuzz`, `nikto`, `sqlmap`, `commix`,
+`dalfox`, `xsstrike` (XSS con bypass WAF), `arjun`, `paramspider`,
+`whatwaf`, `wpscan`, `whatweb`, `sslscan`, `mitmproxy`, `naabu`, `dnsx`,
+`gowitness` (screenshots URLs en masa), `subzy` (subdomain takeover).
 
 **Brute force / cracking**: `hydra`, `ncrack`, `medusa`, `john`,
-`hashcat`, `hashid`, `crunch`.
+`hashcat`, `hashid`, `crunch`, `cewl` (wordlist desde sites web).
 
 **AD / Windows pentesting**: `nxc`/`netexec` (swiss army SMB/LDAP/MSSQL/
-WinRM/SSH), `bloodhound-python` (path mapping), `certipy-ad` (AD CS
-ESC1-11), `pypykatz` (mimikatz puro Python), `coercer` (PetitPotam &co.),
-`kerbrute`, `evil-winrm`, `responder`, `enum4linux-ng`, `smbclient`,
-`ldap-utils`, `impacket` (`psexec.py`, `secretsdump.py`, `GetNPUsers.py`,
-`ntlmrelayx.py`, …).
+WinRM/SSH), `bloodhound-python`, `bloodyAD` (RBCD / shadow creds CLI),
+`certipy-ad` (AD CS ESC1-11), `pypykatz` (mimikatz Python),
+`coercer` (PetitPotam &co.), `kerbrute`, `evil-winrm`, `responder`,
+`mitm6` (IPv6 spoof + WPAD), `ldapdomaindump`, `enum4linux-ng`,
+`smbclient`, `ldap-utils`, `impacket` (`psexec.py`, `secretsdump.py`,
+`GetNPUsers.py`, `ntlmrelayx.py`, …).
 
 **Pivoting / túneles**: `chisel`, `proxychains4`, `socat`, `tor`.
 
 **OSINT**: `subfinder`, `assetfinder`, `httpx`, `nuclei` (con templates
 pre-cargados), `theHarvester`, `gau`, `waybackurls`, `gitleaks`,
-`sherlock`, `holehe`, `socialscan`, `shodan`, `censys`, `waybackpy`.
+`trufflehog` (secret scanning agresivo), `sherlock`, `holehe`,
+`socialscan`, `shodan`, `censys`, `waybackpy`.
 
 **Forense / esteganografía**: `binwalk`, `foremost`, `steghide`, `exiftool`,
 `volatility3` (memoria RAM), `bulk-extractor`.
@@ -128,7 +135,10 @@ pre-cargados), `theHarvester`, `gau`, `waybackurls`, `gitleaks`,
 `pwntools` (Python), `xxd`, `strings`, `file`, `objdump`, `readelf`, `nm`,
 `ltrace`, `strace`.
 
-**Cloud (AWS)**: `awscli`.
+**CTF crypto**: `RsaCtfTool` (ataques a RSA débil — factordb, Wiener,
+Fermat, common factors, etc.).
+
+**Cloud (AWS)**: `awscli`, `s3scanner` (buckets S3 abiertos).
 
 **Wireless**: `aircrack-ng` suite (cracking de capturas .cap/.pcap).
 
@@ -139,6 +149,60 @@ pre-cargados), `theHarvester`, `gau`, `waybackurls`, `gitleaks`,
 
 **Wordlists**: `/opt/SecLists` (rockyou, common-passwords, web-fuzzing,
 usernames, payloads).
+
+## Playbook integrado
+
+El system prompt lleva recetas listas para usar — el agente no tiene que
+reinventar payloads cada vez. Cubre:
+
+- **Reverse shells** (bash/python/php/powershell + estabilización TTY)
+- **SQLi** (auth bypass, union, time-based blind, sqlmap tampers)
+- **XSS** (bypass de filtros, polyglot universal, robo de cookies)
+- **SSTI** por engine (Jinja2, Twig, ERB, Velocity)
+- **LFI**, **JWT** (alg:none, kid traversal), **file upload bypass**
+- **XXE** (file read, SSRF interno, OOB exfil con DTD remoto)
+- **Linux privesc** (sudo -l, SUIDs, GTFOBins, kernel exploits con
+  CVE→versión: Dirty Pipe, PwnKit, Dirty COW, sudoedit)
+- **Windows privesc** (mapeo `Se*Privilege` → técnica: SeImpersonate→
+  PrintSpoofer/GodPotato, SeBackup→dump SAM, SeRestore, SeLoadDriver…)
+- **AD chain HTB-style** (kerbrute → AS-REP roast → password spray →
+  kerberoast → BloodHound → certipy AD CS → DCSync → pass-the-hash)
+- **Stack-specific**: WordPress / Drupal / Tomcat / Spring Actuator /
+  Jenkins / Confluence / GitLab / phpMyAdmin / Grafana / Elasticsearch /
+  MongoDB / Redis / Docker daemon / K8s API
+- **API testing**: REST discovery (swagger), IDOR, mass assignment,
+  GraphQL (introspection, batch queries, sin introspect)
+- **Container escape**: docker.sock, --privileged, cgroup release_agent,
+  cap_sys_admin, cap_dac_read_search
+- **AWS**: IAM enum, S3 anónimo/auth, EC2 metadata (IMDSv2 con token),
+  Lambda env vars
+- **Pivoting con chisel** + proxychains
+- **Iteration tactics**: qué probar cuando nmap/gobuster/sqlmap/XSS/hydra
+  fallan (vectores alternativos)
+
+## Control mid-run (STOP / INJECT)
+
+Cuando el agente está ejecutando una tarea, en el panel izquierdo:
+
+- **`[ EXEC ]`** se transforma en **`[ INJECT ]`** (amber). Escribes una
+  instrucción y pulsas Enter → se entrega al agente entre turnos como
+  mensaje del usuario con prefijo `[USUARIO INTERRUMPE…]`. El agente
+  reacciona en el siguiente paso. Útil para:
+  - corregir un target (*"el IP real es .42 no .41"*)
+  - cambiar de táctica (*"olvida ese path, prueba sqlmap"*)
+  - añadir objetivo (*"si encuentras la flag, también dump /etc/passwd"*)
+- **`[ STOP ]`** (rojo, solo visible durante busy) → cancela limpiamente
+  al final del turno actual (no rompe la API call en curso).
+
+Por API:
+
+```bash
+curl -X POST http://localhost:8000/inject \
+  -H "Content-Type: application/json" \
+  -d '{"message":"prueba con dirsearch en /admin"}'
+
+curl -X POST http://localhost:8000/interrupt
+```
 
 ## DevTools de Firefox
 
@@ -190,6 +254,8 @@ Comandos: `/start`, `/myid`, `/status`. Una tarea concurrente.
 - `GET /` — dashboard
 - `POST /task` — `{"task": "..."}`
 - `POST /shell` — `{"command": "...", "timeout": 30}`
+- `POST /inject` — `{"message": "..."}` (instrucción mid-task al agente)
+- `POST /interrupt` — detener tarea actual al cierre del turno
 - `GET /events` — SSE
 - `GET /healthz`
 
@@ -200,6 +266,8 @@ CORS abierto. Auth Bearer opcional vía `API_TOKEN`.
 - `GET /api` — descubrimiento
 - `POST /api/task` — encola async
 - `POST /api/task/stream` — encola y stremea texto del agente en vivo
+- `POST /api/inject` — inyecta mensaje mid-task
+- `POST /api/interrupt` — para la tarea actual
 - `GET /api/status` — `{busy, task}`
 - `GET /api/events` — SSE global
 - `POST /api/shell` — ejecuta bash
