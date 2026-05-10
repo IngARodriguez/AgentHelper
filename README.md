@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.png" alt="OpenTesting" width="640">
+<img src="assets/logo.png" alt="OpenTesting" width="360">
 
 # AgentHelper
 
