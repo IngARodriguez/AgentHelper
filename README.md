@@ -51,6 +51,50 @@ Lo único obligatorio en `.env` es `ANTHROPIC_API_KEY`. Todo lo demás
 (resolución, calidad de screenshots, tokens, delays, anti-crash de Firefox,
 prompt caching) viene preconfigurado para que funcione bien sin tocar nada.
 
+## Modo seguridad / hacking
+
+El sandbox tiene preinstalado un toolbox de ethical hacking que el agente
+sabe usar para tareas de CTF, pentesting autorizado y cursos de seguridad.
+
+**Recon / scanning**: `nmap`, `masscan`, `arp-scan`, `tcpdump`, `tshark`,
+`whois`, `dig`, `dnsenum`, `dnsrecon`, `traceroute`.
+
+**Web**: `gobuster`, `dirb`, `wfuzz`, `nikto`, `sqlmap`, `whatweb`,
+`sslscan`, `mitmproxy`.
+
+**Brute force / cracking**: `hydra`, `ncrack`, `medusa`, `john`, `hashcat`,
+`crunch`.
+
+**SMB / AD / Windows**: `smbclient`, `enum4linux`, `ldap-utils`, `impacket`
+(Python: `psexec.py`, `secretsdump.py`, `GetNPUsers.py`, …).
+
+**Forense / reversing / esteganografía**: `binwalk`, `foremost`, `steghide`,
+`exiftool`, `radare2`, `xxd`, `strings`.
+
+**Exploit DB**: `searchsploit <termino>` busca en exploitdb local.
+
+**Python**: `scapy`, `pwntools`, `requests`, `paramiko`, `dnspython`,
+`pycryptodome`, `impacket`. Para scripts custom.
+
+**Wordlists**: `/opt/SecLists` (rockyou, web-fuzzing, usernames, etc.).
+
+**Scope**: el agente solo actúa sobre objetivos donde tienes permiso —
+CTF (HackTheBox, TryHackMe, picoCTF…), labs propios/VMs locales, bounty
+con scope publicado, o pentest contratado. Si pides algo que parezca contra
+un objetivo no autorizado, te preguntará antes.
+
+Ejemplos de tarea por dashboard / API / Telegram:
+
+```
+Escanea con nmap top 1000 puertos a 10.10.11.X y enumera los servicios
+con scripts default. Dime versiones y posibles vulns conocidas.
+```
+
+```
+Hay un login en http://lab.local/admin. Prueba sqlmap con técnica básica
+y reporta si es vulnerable.
+```
+
 ## Bot de Telegram (opcional)
 
 Si añades `TELEGRAM_BOT_TOKEN` a tu `.env`, el contenedor arranca también un
