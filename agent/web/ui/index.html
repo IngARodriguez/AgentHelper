@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>AGENTHELPER // pentest console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ui/style.css">
+</head>
+<body>
+  <div class="panel">
+    <header>
+      <span class="dot" id="dot"></span>
+      <span class="label">[ AGENTHELPER ]</span>
+      <span id="status-label">idle</span>
+      <span class="meta" id="header-meta">opus-4.7 // session live</span>
+    </header>
+    <div id="log"><span id="cursor"></span></div>
+    <div id="status-bar">
+      <span id="hint">enter task // shift+enter for newline</span>
+      <span id="conn" class="reconnecting">linking…</span>
+    </div>
+    <div id="input-row">
+      <textarea id="task" rows="1" placeholder="target / task..." autofocus></textarea>
+      <button id="send">EXEC</button>
+      <button id="resume" title="Reanudar la última sesión (con o sin instrucción nueva)">RESUME</button>
+      <button id="stop" title="Detener tarea actual al final del turno">STOP</button>
+    </div>
+  </div>
+  <div class="panel">
+    <header>
+      <span class="dot"></span>
+      <span class="label">[ TARGET DISPLAY ]</span>
+      <span class="meta">novnc :: x11vnc → xvfb :1</span>
+    </header>
+    <iframe src="/vnc/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=websockify&quality=8&compression=2&show_dot=0" id="vnc"></iframe>
+  </div>
+  <script src="/ui/app.js"></script>
+</body>
+</html>

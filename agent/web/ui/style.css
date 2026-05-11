@@ -1,0 +1,367 @@
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+:root {
+  --bg: #050807;
+  --bg-2: #0a0f0d;
+  --bg-3: #101715;
+  --border: #1a3a2a;
+  --border-soft: #142822;
+  --fg: #c8f0d4;
+  --green: #00ff9c;
+  --green-dim: #4ddb89;
+  --green-glow: rgba(0,255,156,0.18);
+  --cyan: #5cf3ff;
+  --amber: #ffcc55;
+  --red: #ff4757;
+  --magenta: #ff5cad;
+  --gray: #5e7b6e;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+}
+body {
+  font-family: var(--font-mono);
+  background: var(--bg);
+  color: var(--fg);
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) 1.6fr;
+  height: 100vh;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.55;
+  /* Subtle scanline overlay */
+  background-image:
+    linear-gradient(rgba(0,255,156,0.015) 50%, transparent 50%);
+  background-size: 100% 3px;
+}
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+.panel:last-child { border-right: 0; }
+
+/* ─── Header con título estilo terminal ─── */
+.panel header {
+  padding: 10px 14px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--green-dim);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+}
+.panel header::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--green) 50%, transparent);
+  opacity: 0.4;
+}
+.panel header .label {
+  color: var(--green);
+  text-shadow: 0 0 6px var(--green-glow);
+}
+.panel header .meta {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--gray);
+  letter-spacing: 1px;
+}
+.dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+}
+.dot.busy {
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--amber);
+  animation: pulse 0.9s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+/* ─── Log central ─── */
+#log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 14px 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+#log::-webkit-scrollbar { width: 6px; }
+#log::-webkit-scrollbar-track { background: transparent; }
+#log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+#log .agent  { color: var(--fg); }
+#log .user   { color: var(--green); font-weight: 700; text-shadow: 0 0 6px var(--green-glow); }
+#log .action { color: var(--amber); }
+#log .err    { color: var(--red); }
+#log .sys    { color: var(--gray); font-style: italic; }
+#log .turn   {
+  color: var(--gray);
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+  margin-top: 8px;
+  display: block;
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+#log .helper-block {
+  display: block;
+  background: var(--bg-3);
+  border-left: 2px solid var(--magenta);
+  padding: 6px 10px;
+  margin: 6px 0;
+  color: var(--magenta);
+  white-space: pre-wrap;
+}
+#log .bash-block {
+  display: block;
+  background: #030504;
+  border: 1px solid var(--border-soft);
+  border-left: 2px solid var(--green);
+  padding: 8px 10px;
+  margin: 6px 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 0 0 1px rgba(0,255,156,0.04);
+}
+#log .bash-block .cmd { color: var(--green); font-weight: 700; }
+#log .bash-block .cmd::before { content: '┌─ '; color: var(--gray); font-weight: 400; }
+#log .bash-block .stderr { color: var(--magenta); }
+#log .bash-block .exit-ok { color: var(--gray); font-size: 11px; }
+#log .bash-block .exit-fail { color: var(--red); font-size: 11px; }
+#log .bash-block .by-user {
+  color: var(--cyan);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 4px;
+}
+
+/* ─── Status bar ─── */
+#status-bar {
+  padding: 5px 14px;
+  font-size: 10px;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+  color: var(--gray);
+  display: flex;
+  justify-content: space-between;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+#status-bar #conn.live { color: var(--green); }
+#status-bar #conn.reconnecting { color: var(--amber); }
+
+/* ─── Input ─── */
+#input-row {
+  display: flex;
+  gap: 0;
+  padding: 8px;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+  position: relative;
+}
+#input-row::before {
+  content: '▶';
+  position: absolute;
+  left: 18px; top: 16px;
+  color: var(--green);
+  font-size: 11px;
+  pointer-events: none;
+  text-shadow: 0 0 6px var(--green-glow);
+}
+#task {
+  flex: 1;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 10px 12px 10px 32px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  outline: none;
+  resize: none;
+  min-height: 42px;
+  max-height: 140px;
+  caret-color: var(--green);
+}
+#task:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 1px var(--green), 0 0 12px var(--green-glow);
+}
+#task:disabled { opacity: 0.45; }
+
+#send, #stop {
+  background: transparent;
+  color: var(--green);
+  border: 1px solid var(--green);
+  border-left: 0;
+  border-radius: 0;
+  padding: 0 18px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.12s;
+  text-shadow: 0 0 4px var(--green-glow);
+}
+#send:hover:not(:disabled) {
+  background: var(--green);
+  color: var(--bg);
+  box-shadow: 0 0 12px var(--green-glow);
+  text-shadow: none;
+}
+#send:disabled {
+  color: var(--gray);
+  border-color: var(--border);
+  cursor: not-allowed;
+  text-shadow: none;
+}
+/* INJECT mode (cuando busy): cambia a amber */
+#send.inject {
+  color: var(--amber);
+  border-color: var(--amber);
+  text-shadow: 0 0 4px rgba(255,204,85,0.3);
+}
+#send.inject:hover:not(:disabled) {
+  background: var(--amber);
+  color: var(--bg);
+  box-shadow: 0 0 12px rgba(255,204,85,0.4);
+  text-shadow: none;
+}
+/* STOP button — solo visible durante busy */
+#stop {
+  display: none;
+  color: var(--red);
+  border-color: var(--red);
+  text-shadow: 0 0 4px rgba(255,71,87,0.3);
+  padding: 0 14px;
+}
+#stop.visible { display: block; }
+#stop:hover {
+  background: var(--red);
+  color: var(--bg);
+  box-shadow: 0 0 12px rgba(255,71,87,0.4);
+  text-shadow: none;
+}
+#stop.armed {
+  background: var(--red);
+  color: var(--bg);
+  animation: pulse-fast 0.6s steps(2) infinite;
+  pointer-events: none;
+}
+/* RESUME button — solo visible cuando idle Y hay sesión persistida */
+#resume {
+  display: none;
+  background: transparent;
+  color: var(--cyan);
+  border: 1px solid var(--cyan);
+  border-left: 0;
+  border-radius: 0;
+  padding: 0 14px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.12s;
+  text-shadow: 0 0 4px rgba(92,243,255,0.3);
+}
+#resume.visible { display: block; }
+#resume:hover {
+  background: var(--cyan);
+  color: var(--bg);
+  box-shadow: 0 0 12px rgba(92,243,255,0.4);
+  text-shadow: none;
+}
+@keyframes pulse-fast { 50% { opacity: 0.6; } }
+
+/* Inyección del usuario en el log */
+#log .inject-block {
+  display: block;
+  background: #1a1505;
+  border-left: 2px solid var(--amber);
+  padding: 6px 10px;
+  margin: 6px 0;
+  color: var(--amber);
+  white-space: pre-wrap;
+}
+#log .inject-applied {
+  color: var(--amber);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  display: block;
+  margin: 2px 0;
+}
+/* Refusal de Anthropic — bloque destacado con CTA */
+#log .refusal-block {
+  display: block;
+  background: #1d0a0c;
+  border: 1px solid var(--red);
+  border-left: 3px solid var(--red);
+  padding: 10px 12px;
+  margin: 8px 0;
+  color: #ffb8c0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+#log .refusal-block .title {
+  color: var(--red);
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-size: 11px;
+  display: block;
+  margin-bottom: 4px;
+}
+#log .refusal-block a {
+  color: var(--cyan);
+  text-decoration: underline;
+  word-break: break-all;
+}
+#log .refusal-block.final {
+  background: #2a0d10;
+  box-shadow: 0 0 12px rgba(255,71,87,0.2);
+}
+
+/* ─── noVNC iframe ─── */
+iframe {
+  flex: 1;
+  border: 0;
+  width: 100%;
+  background: #000;
+}
+
+/* ─── Cursor parpadeante decorativo en el log ─── */
+#cursor {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background: var(--green);
+  vertical-align: text-bottom;
+  animation: blink 1s steps(2) infinite;
+  box-shadow: 0 0 6px var(--green-glow);
+  margin-left: 2px;
+}
+@keyframes blink { 50% { opacity: 0; } }
