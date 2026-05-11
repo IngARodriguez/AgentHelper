@@ -79,7 +79,7 @@ Abre **<http://localhost:8000>**.
 └─────────────────────────────┴─────────────────────────────┘
 ```
 
-Lo único obligatorio es `ANTHROPIC_API_KEY`. Resolución, calidad de
+Lo único obligatorio es `ANTHROPIC_API_KEY` y `ANTHROPIC_BASE_URL` . Resolución, calidad de
 screenshots, anti-crash de Firefox y prompt caching vienen preconfigurados.
 
 > [!NOTE]
@@ -508,7 +508,6 @@ completa con Opus**, menos con Sonnet.
 > - El agente corre con **root dentro del contenedor**. No ve el sistema host.
 > - El sandbox Docker provee aislamiento por defecto. **No le pases** flags que
 >   lo rompan (`--privileged`, `--network=host`) salvo escenario específico.
-> - **No commitees `.env`** — el `.gitignore` ya lo excluye.
 > - Úsalo **solo donde tengas autorización** (CTF, lab, bounty con scope, máquina
 >   propia, ejercicio académico). Tú eres responsable del target.
 
@@ -522,6 +521,5 @@ MIT.
 
 <br>
 
-`[ AGENTHELPER ]` &nbsp;·&nbsp; hecho para aprender pentesting
-
+`[ AGENTHELPER ]` &nbsp;·&nbsp; creditos IngARodriguez
 </div>
