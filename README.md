@@ -61,7 +61,7 @@
 git clone https://github.com/IngARodriguez/AgentHelper.git
 cd AgentHelper
 cp .env.example .env
-# Edita .env y pon tu ANTHROPIC_API_KEY
+# Edita .env y pon tu ANTHROPIC_API_KEY y ANTHROPIC_BASE_URL
 
 docker compose up --build
 ```
